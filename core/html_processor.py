@@ -429,14 +429,57 @@ def strip_images_and_figures(soup_or_html):
         return str(soup)
     for tag in soup_or_html.find_all(['img', 'figure', 'figcaption']): tag.decompose()
 
-def format_manual_tables(soup_or_html, align_mode: str = "auto", col1_align: str | None = None, coln_align: str | None = None, header_align: str | None = None):
+def format_manual_tables(
+    soup_or_html,
+    align_mode: str = "auto",
+    col1_align: str | None = None,
+    coln_align: str | None = None,
+    header_align: str | None = None,
+    *,
+    col2_align: str | None = None,
+    col3_align: str | None = None,
+):
     if isinstance(soup_or_html, str):
         soup = BeautifulSoup(soup_or_html, _HTML_PARSER)
-        _format_manual_tables_impl(soup, align_mode, col1_align, coln_align, header_align)
+        _format_manual_tables_impl(
+            soup, align_mode, col1_align, col2_align, col3_align, coln_align, header_align
+        )
         return str(soup)
-    _format_manual_tables_impl(soup_or_html, align_mode, col1_align, coln_align, header_align)
+    _format_manual_tables_impl(
+        soup_or_html, align_mode, col1_align, col2_align, col3_align, coln_align, header_align
+    )
 
-def _format_manual_tables_impl(soup: BeautifulSoup, align_mode: str = "auto", col1_align: str | None = None, coln_align: str | None = None, header_align: str | None = None) -> None:
+
+def max_columns_in_first_table(html_path) -> int:
+    """Return max column count among rows of the first <table>, or 0 if none."""
+    try:
+        p = Path(html_path) if not isinstance(html_path, Path) else html_path
+        if not p.is_file():
+            return 0
+        html = p.read_text(encoding="utf-8", errors="ignore")
+        soup = BeautifulSoup(html, _HTML_PARSER)
+        table = soup.find("table")
+        if not table:
+            return 0
+        m = 0
+        for tr in table.find_all("tr"):
+            n = len(tr.find_all(["th", "td"]))
+            if n > m:
+                m = n
+        return m
+    except Exception:
+        return 0
+
+
+def _format_manual_tables_impl(
+    soup: BeautifulSoup,
+    align_mode: str = "auto",
+    col1_align: str | None = None,
+    col2_align: str | None = None,
+    col3_align: str | None = None,
+    coln_align: str | None = None,
+    header_align: str | None = None,
+) -> None:
     mode = (align_mode or "auto").strip().lower()
     def norm_align(v: str | None) -> str | None:
         if v is None:
@@ -446,8 +489,35 @@ def _format_manual_tables_impl(soup: BeautifulSoup, align_mode: str = "auto", co
             return None
         return s if s in ("left", "center", "right") else None
     c1 = norm_align(col1_align)
+    c2 = norm_align(col2_align)
+    c3 = norm_align(col3_align)
     cn = norm_align(coln_align)
     ha = norm_align(header_align)
+
+    def auto_align(idx: int, num: bool) -> str:
+        if mode == "left_all":
+            return "left"
+        if mode == "center_all":
+            return "center"
+        if mode == "right_all":
+            return "right"
+        if mode == "right_numeric":
+            return "right" if num else "left"
+        if mode == "auto_skip_first":
+            return "left" if idx == 0 else ("center" if num else "left")
+        return "center" if num else "left"
+
+    def pick_col_align(idx: int, num: bool) -> str:
+        if idx == 0 and c1 is not None:
+            return c1
+        if idx == 1 and c2 is not None:
+            return c2
+        if idx == 2 and c3 is not None:
+            return c3
+        if idx >= 3 and cn is not None:
+            return cn
+        return auto_align(idx, num)
+
     def is_num(t):
         if not t: return True
         t = t.strip(); normalized = re.sub(r'[\s$,%\u00a0\u2013\u2014]', '', t)
@@ -468,18 +538,13 @@ def _format_manual_tables_impl(soup: BeautifulSoup, align_mode: str = "auto", co
                     th['scope'] = 'col'
         for row in table.find_all('tr'):
             cells = row.find_all(['th', 'td'])
+            in_thead = row.parent and row.parent.name == 'thead'
             for idx, td in enumerate(cells):
                 num = is_num(td.get_text().strip())
-                if td.name == "th" and ha:
+                if in_thead and td.name == "th" and ha:
                     a = ha
-                elif c1 and cn:
-                    a = c1 if idx == 0 else cn
-                elif mode == "left_all": a = "left"
-                elif mode == "center_all": a = "center"
-                elif mode == "right_all": a = "right"
-                elif mode == "right_numeric": a = "right" if num else "left"
-                elif mode == "auto_skip_first": a = "left" if idx == 0 else ("center" if num else "left")
-                else: a = "center" if num else "left"
+                else:
+                    a = pick_col_align(idx, num)
                 td['class'] = [c for c in (td.get('class', []) if isinstance(td.get('class', []), list) else td.get('class', '').split()) if not c.startswith("manual-align-")] + [f"manual-align-{a}"]
                 apply_align(td, a)
                 for child in td.find_all(['p', 'span']): apply_align(child, a)
@@ -745,7 +810,15 @@ def process_html_pipeline(html_content: str, session_id: str, config: dict) -> t
     if config.get('heading_edits'): _apply_heading_edits_impl(soup, config.get('heading_edits'))
     _normalize_typed_lists_impl(soup)
     _apply_list_classes_and_styles_impl(soup)
-    _format_manual_tables_impl(soup, config.get('table_align_mode', 'auto'), config.get('table_col1_align'), config.get('table_coln_align'), config.get('table_header_align'))
+    _format_manual_tables_impl(
+        soup,
+        config.get('table_align_mode', 'auto'),
+        config.get('table_col1_align'),
+        config.get('table_col2_align'),
+        config.get('table_col3_align'),
+        config.get('table_coln_align'),
+        config.get('table_header_align'),
+    )
     if config.get('references'):
         _apply_reference_edits_impl(soup, config.get('reference_edits', {}), config.get('references', []), config.get('reference_validations', {}), config.get('reference_link_targets', {}), auto_crosswalk=config.get('auto_crosswalk', {}), new_headings=config.get('new_headings', {}), reference_ignored=config.get('reference_ignored', {}), reference_external_urls=config.get('reference_external_urls', {}), skip_linked_text=config.get('skip_linked_text', False), rebuild_links=config.get('rebuild_links', False))
     return str(soup), generate_server_side_toc(soup, config.get('toc_depth', 2))

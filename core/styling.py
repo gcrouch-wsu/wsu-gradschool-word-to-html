@@ -1,3 +1,4 @@
+import html
 import logging
 import re
 from pathlib import Path
@@ -44,6 +45,8 @@ def default_theme_settings(manual_type: str = "chapter", theme_id: str | None = 
         "line_height": 1.6,
         "table_align_mode": "auto",
         "table_col1_align": None,
+        "table_col2_align": None,
+        "table_col3_align": None,
         "table_coln_align": None,
         "table_header_align": None,
         "table_layout_mode": "auto",
@@ -59,8 +62,45 @@ def default_theme_settings(manual_type: str = "chapter", theme_id: str | None = 
         "table_row_stripe_color": "#f9fafb",
     }
 
-_ALIGN_KEYS = frozenset({"table_col1_align", "table_coln_align", "table_header_align"})
+_ALIGN_KEYS = frozenset({
+    "table_col1_align",
+    "table_col2_align",
+    "table_col3_align",
+    "table_coln_align",
+    "table_header_align",
+})
 _BOOL_KEYS = frozenset({"table_header_bold", "table_row_stripe"})
+
+# WSU brand / web palette for table (and UI swatches)
+WSU_BRAND_SWATCHES: list[tuple[str, str]] = [
+    ("#981E32", "WSU Crimson"),
+    ("#A60F2D", "Crimson web / links"),
+    ("#5E6A71", "Cool gray 11"),
+    ("#4D4D4D", "Gray 70"),
+    ("#393939", "Near black"),
+    ("#000000", "Black"),
+    ("#FFFFFF", "White"),
+    ("#F1F1F1", "Light gray"),
+    ("#E1E4E5", "Background gray"),
+    ("#008265", "WSU green"),
+    ("#B67233", "Copper"),
+]
+
+
+def wsu_swatch_buttons_html(for_input_id: str) -> str:
+    """Small WSU palette buttons that set a paired color input via JS."""
+    parts = [
+        f'<div class="wsu-swatches" role="group" aria-label="WSU palette for {for_input_id}">'
+    ]
+    for hex_val, label in WSU_BRAND_SWATCHES:
+        esc = html.escape(label, quote=True)
+        parts.append(
+            f'<button type="button" class="wsu-swatch" title="{esc}" aria-label="{esc}" '
+            f'data-hex="{hex_val}" data-target="{for_input_id}" '
+            f'style="background-color:{hex_val};"></button>'
+        )
+    parts.append("</div>")
+    return "".join(parts)
 
 
 def _coerce_align_value(val) -> str | None:
@@ -70,6 +110,18 @@ def _coerce_align_value(val) -> str | None:
     if s in ("", "auto", "none"):
         return None
     return s if s in ("left", "center", "right") else None
+
+
+def _maybe_expand_legacy_coln(src: dict | None, settings: dict) -> None:
+    """If src predates per-column 2/3, copy table_coln_align into col2 and col3."""
+    if not src or not isinstance(src, dict):
+        return
+    if "table_col2_align" in src or "table_col3_align" in src:
+        return
+    leg = _coerce_align_value(src.get("table_coln_align"))
+    if leg is not None:
+        settings["table_col2_align"] = leg
+        settings["table_col3_align"] = leg
 
 
 def coerce_theme_settings(
@@ -84,10 +136,12 @@ def coerce_theme_settings(
     """
     settings = default_theme_settings(manual_type)
     warnings: list[str] = []
+    _maybe_expand_legacy_coln(raw_settings, settings)
     if prior:
         for key in settings:
             if key in prior:
                 settings[key] = prior[key]
+        _maybe_expand_legacy_coln(prior, settings)
     if not raw_settings:
         return _finalize_theme_settings(settings, warnings)
 
@@ -205,9 +259,30 @@ def _build_manual_table_css(settings: dict) -> str:
     stripe_rule = ""
     if stripe_on:
         stripe_rule = f"""
-    .manual-grid .manual table tbody tr:nth-child(even) th,
-    .manual-grid .manual table tbody tr:nth-child(even) td {{
+    .manual-grid .manual table tbody tr:nth-child(odd) > td,
+    .manual-grid .manual table tbody tr:nth-child(odd) > th {{
+        background-color: #ffffff !important;
+    }}
+    .manual-grid .manual table tbody tr:nth-child(even) > td,
+    .manual-grid .manual table tbody tr:nth-child(even) > th {{
         background-color: {stripe} !important;
+    }}"""
+
+    tbody_body_rule = ""
+    if not stripe_on:
+        tbody_body_rule = f"""
+    .manual-grid .manual table tbody > tr > td,
+    .manual-grid .manual table tbody > tr > th {{
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        font-weight: 400 !important;
+    }}"""
+    else:
+        tbody_body_rule = f"""
+    .manual-grid .manual table tbody > tr > td,
+    .manual-grid .manual table tbody > tr > th {{
+        color: #000000 !important;
+        font-weight: 400 !important;
     }}"""
 
     return f"""
@@ -223,11 +298,12 @@ def _build_manual_table_css(settings: dict) -> str:
         padding: {pad}px !important;
         vertical-align: top !important;
     }}
-    .manual-grid .manual table th {{
+    .manual-grid .manual table thead th {{
         background-color: {hdr_bg} !important;
         color: {hdr_fg} !important;
         font-weight: {fw} !important;
     }}
+    {tbody_body_rule}
     {stripe_rule}
     """
 

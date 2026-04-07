@@ -79,6 +79,7 @@ from core.html_processor import (
     apply_heading_edits,
     apply_list_classes_and_styles,
     format_manual_tables,
+    max_columns_in_first_table,
     apply_reference_edits,
     strip_html_assets,
     shift_heading_levels,
@@ -141,6 +142,7 @@ from core.styling import (
     coerce_theme_settings,
     build_theme_css,
     build_table_theme_css,
+    wsu_swatch_buttons_html,
     contrast_ratio,
     resolve_reference_doc_path,
     get_reference_style_context,
@@ -2069,7 +2071,7 @@ _TABLE_REVIEW_PREVIEW_SAMPLE = (
     '<div class="manual"><table>'
     '<thead><tr><th>Policy area</th><th>Code</th><th>Description</th></tr></thead>'
     "<tbody>"
-    '<tr><th scope="row">Section I</th><td>101</td><td>Introductory sample text.</td></tr>'
+    "<tr><td>Section I</td><td>101</td><td>First column is a normal body cell (not a header row).</td></tr>"
     "<tr><td>Sub-item</td><td>1,250</td><td>Numeric column for alignment preview.</td></tr>"
     "<tr><td>Another row</td><td>42</td><td>Shorter cell.</td></tr>"
     "<tr><td>Final example</td><td>900</td><td>More body content to show striping.</td></tr>"
@@ -2097,6 +2099,8 @@ def table_review_preview(session_id):
         settings.get("table_col1_align"),
         settings.get("table_coln_align"),
         settings.get("table_header_align"),
+        col2_align=settings.get("table_col2_align"),
+        col3_align=settings.get("table_col3_align"),
     )
     soup = BeautifulSoup(aligned, "html.parser")
     tbl = soup.find("table")
@@ -2127,6 +2131,22 @@ def table_review(session_id):
 
     manual_type = session_data.get('manual_type', 'chapter')
     theme_settings, warnings = coerce_theme_settings(session_data.get('theme_settings'), manual_type)
+
+    detected_cols = 0
+    if html_import and html_path.exists():
+        detected_cols = max_columns_in_first_table(html_path)
+    elif session.temp_html.exists():
+        detected_cols = max_columns_in_first_table(session.temp_html)
+    det_note = (
+        f'<p class="small" style="margin:0 0 12px 0;"><strong>Detected:</strong> The first table in your document has '
+        f"<strong>{detected_cols}</strong> columns (alignment defaults still use “Automatic” unless you choose otherwise).</p>"
+        if detected_cols
+        else ""
+    )
+    sw_bg = wsu_swatch_buttons_html("table_header_bg")
+    sw_hc = wsu_swatch_buttons_html("table_header_color")
+    sw_bc = wsu_swatch_buttons_html("table_border_color")
+    sw_sc = wsu_swatch_buttons_html("table_row_stripe_color")
 
     if request.method == "POST":
         fd = request.form.to_dict()
@@ -2167,6 +2187,10 @@ def table_review(session_id):
     #table-preview-root table {{ width: 100%; max-width: 100%; }}
     .preview-status {{ font-size: 13px; color: #64748b; min-height: 1.3em; margin-bottom: 8px; }}
     .controls-section {{ width: 100%; max-width: 100%; }}
+    .wsu-swatches {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; max-width: 100%; }}
+    .wsu-swatch {{ width: 26px; height: 26px; border-radius: 4px; border: 1px solid #bbb; cursor: pointer; padding: 0; flex-shrink: 0; box-sizing: border-box; }}
+    .wsu-swatch:hover {{ filter: brightness(1.08); border-color: #981E32; }}
+    .wsu-swatch:focus {{ outline: 2px solid #981E32; outline-offset: 2px; }}
     </style>
     <style id="wp-preview-base">__WP_CSS_PLACEHOLDER__</style>
     <style id="table-preview-theme"></style>
@@ -2175,6 +2199,7 @@ def table_review(session_id):
     <div class="container">
       <h1>Table Review</h1>
       <p class="small">Choose common table formatting rules before conversion. These settings are written into the exported CSS (after the base manual stylesheet). The preview updates as you change options.</p>
+      {det_note}
       <aside class="preview-panel" aria-label="Live table preview">
         <h2>Live preview</h2>
         <p class="small" style="margin-top:0;">Sample table (not your document). Styling matches export; cell alignment uses the same rules as conversion.</p>
@@ -2196,7 +2221,25 @@ def table_review(session_id):
             </select>
           </div>
           <div>
-            <label for="table_coln_align">Columns 2+ alignment</label>
+            <label for="table_col2_align">Column 2 alignment</label>
+            <select id="table_col2_align" name="table_col2_align">
+              <option value="auto" {"selected" if not theme_settings.get("table_col2_align") else ""}>Automatic (converter)</option>
+              <option value="left" {"selected" if theme_settings.get("table_col2_align") == "left" else ""}>Left</option>
+              <option value="center" {"selected" if theme_settings.get("table_col2_align") == "center" else ""}>Center</option>
+              <option value="right" {"selected" if theme_settings.get("table_col2_align") == "right" else ""}>Right</option>
+            </select>
+          </div>
+          <div>
+            <label for="table_col3_align">Column 3 alignment</label>
+            <select id="table_col3_align" name="table_col3_align">
+              <option value="auto" {"selected" if not theme_settings.get("table_col3_align") else ""}>Automatic (converter)</option>
+              <option value="left" {"selected" if theme_settings.get("table_col3_align") == "left" else ""}>Left</option>
+              <option value="center" {"selected" if theme_settings.get("table_col3_align") == "center" else ""}>Center</option>
+              <option value="right" {"selected" if theme_settings.get("table_col3_align") == "right" else ""}>Right</option>
+            </select>
+          </div>
+          <div>
+            <label for="table_coln_align">Column 4+ alignment</label>
             <select id="table_coln_align" name="table_coln_align">
               <option value="auto" {"selected" if not theme_settings.get("table_coln_align") else ""}>Automatic (converter)</option>
               <option value="left" {"selected" if theme_settings.get("table_coln_align") == "left" else ""}>Left</option>
@@ -2204,10 +2247,12 @@ def table_review(session_id):
               <option value="right" {"selected" if theme_settings.get("table_coln_align") == "right" else ""}>Right</option>
             </select>
           </div>
+        </div>
+        <div class="row" style="margin-top:8px;">
           <div>
-            <label for="table_header_align"><code>&lt;th&gt;</code> alignment</label>
+            <label for="table_header_align">Header row (<code>&lt;thead&gt;</code>) alignment</label>
             <select id="table_header_align" name="table_header_align">
-              <option value="auto" {"selected" if not theme_settings.get("table_header_align") else ""}>Same as body cells</option>
+              <option value="auto" {"selected" if not theme_settings.get("table_header_align") else ""}>Same as body columns</option>
               <option value="left" {"selected" if theme_settings.get("table_header_align") == "left" else ""}>Left</option>
               <option value="center" {"selected" if theme_settings.get("table_header_align") == "center" else ""}>Center</option>
               <option value="right" {"selected" if theme_settings.get("table_header_align") == "right" else ""}>Right</option>
@@ -2233,10 +2278,12 @@ def table_review(session_id):
           <div>
             <label for="table_header_bg">Header background</label>
             <input id="table_header_bg" name="table_header_bg" type="color" value="{theme_settings.get("table_header_bg")}">
+            {sw_bg}
           </div>
           <div>
             <label for="table_header_color">Header text color</label>
             <input id="table_header_color" name="table_header_color" type="color" value="{theme_settings.get("table_header_color")}">
+            {sw_hc}
           </div>
           <div class="checkbox" style="align-items:flex-end;">
             <input id="table_header_bold" name="table_header_bold" type="checkbox" {"checked" if theme_settings.get("table_header_bold") else ""}>
@@ -2247,6 +2294,7 @@ def table_review(session_id):
           <div>
             <label for="table_border_color">Border color</label>
             <input id="table_border_color" name="table_border_color" type="color" value="{theme_settings.get("table_border_color")}">
+            {sw_bc}
           </div>
           <div>
             <label for="table_border_width">Border width (px)</label>
@@ -2268,6 +2316,7 @@ def table_review(session_id):
           <div>
             <label for="table_row_stripe_color">Stripe color</label>
             <input id="table_row_stripe_color" name="table_row_stripe_color" type="color" value="{theme_settings.get("table_row_stripe_color")}">
+            {sw_sc}
           </div>
           <div class="checkbox" style="align-items:flex-end;">
             <input id="table_row_stripe" name="table_row_stripe" type="checkbox" {"checked" if theme_settings.get("table_row_stripe") else ""}>
@@ -2327,6 +2376,17 @@ def table_review(session_id):
       }}
       form.addEventListener("input", schedule);
       form.addEventListener("change", schedule);
+      document.querySelector(".container").addEventListener("click", function(ev) {{
+        const b = ev.target.closest(".wsu-swatch");
+        if (!b) return;
+        ev.preventDefault();
+        const tid = b.getAttribute("data-target");
+        const inp = document.getElementById(tid);
+        if (!inp) return;
+        inp.value = b.getAttribute("data-hex");
+        inp.dispatchEvent(new Event("input", {{ bubbles: true }}));
+        inp.dispatchEvent(new Event("change", {{ bubbles: true }}));
+      }});
       refresh();
     }})();
     </script>
@@ -2435,6 +2495,8 @@ def do_convert(session_id):
             'heading_edits': heading_edits,
             'table_align_mode': theme_settings.get('table_align_mode', 'auto'),
             'table_col1_align': theme_settings.get('table_col1_align'),
+            'table_col2_align': theme_settings.get('table_col2_align'),
+            'table_col3_align': theme_settings.get('table_col3_align'),
             'table_coln_align': theme_settings.get('table_coln_align'),
             'table_header_align': theme_settings.get('table_header_align'),
             'references': original_references,
