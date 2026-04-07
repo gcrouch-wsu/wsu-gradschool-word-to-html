@@ -2159,17 +2159,14 @@ def table_review(session_id):
     .btn {{ background: #981E32; color: #fff; border: 0; padding: 10px 16px; border-radius: 8px; cursor: pointer; text-decoration: none; }}
     .btn.secondary {{ background: #4b5563; }}
     .small {{ color: #555; font-size: 14px; }}
-    .layout-grid {{ display: grid; gap: 24px; grid-template-columns: 1fr; }}
-    @media (min-width: 960px) {{
-      .layout-grid {{ grid-template-columns: 1fr 1fr; align-items: start; }}
-    }}
-    .preview-panel {{ border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; background: #fafafa; }}
-    @media (min-width: 960px) {{
-      .preview-panel {{ position: sticky; top: 16px; }}
-    }}
+    .preview-panel {{ border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px 20px; background: #fafafa; width: 100%; max-width: 100%; box-sizing: border-box; margin-bottom: 28px; }}
     .preview-panel h2 {{ margin-top: 0; font-size: 1.1rem; color: #374151; }}
-    #table-preview-root {{ min-height: 80px; overflow-x: auto; }}
+    .preview-panel .manual-grid {{ width: 100%; max-width: 100%; box-sizing: border-box; }}
+    .preview-panel .manual {{ width: 100%; max-width: 100%; box-sizing: border-box; }}
+    #table-preview-root {{ min-height: 80px; width: 100%; max-width: 100%; }}
+    #table-preview-root table {{ width: 100%; max-width: 100%; }}
     .preview-status {{ font-size: 13px; color: #64748b; min-height: 1.3em; margin-bottom: 8px; }}
+    .controls-section {{ width: 100%; max-width: 100%; }}
     </style>
     <style id="wp-preview-base">__WP_CSS_PLACEHOLDER__</style>
     <style id="table-preview-theme"></style>
@@ -2178,7 +2175,15 @@ def table_review(session_id):
     <div class="container">
       <h1>Table Review</h1>
       <p class="small">Choose common table formatting rules before conversion. These settings are written into the exported CSS (after the base manual stylesheet). The preview updates as you change options.</p>
-      <div class="layout-grid">
+      <aside class="preview-panel" aria-label="Live table preview">
+        <h2>Live preview</h2>
+        <p class="small" style="margin-top:0;">Sample table (not your document). Styling matches export; cell alignment uses the same rules as conversion.</p>
+        <div id="preview-status" class="preview-status" aria-live="polite"></div>
+        <div class="manual-grid" data-toc-depth="2" data-manual-type="{manual_type}" data-numbering-mode="css-counters" data-theme="manual">
+          <main class="manual" id="table-preview-root"></main>
+        </div>
+      </aside>
+      <div class="controls-section">
       <form id="table-review-form" method="POST">
         <div class="row">
           <div>
@@ -2274,14 +2279,6 @@ def table_review(session_id):
           <button type="submit" name="back" value="1" class="btn secondary">Back to references</button>
         </div>
       </form>
-      <aside class="preview-panel" aria-label="Live table preview">
-        <h2>Live preview</h2>
-        <p class="small" style="margin-top:0;">Sample table (not your document). Styling matches export; cell alignment uses the same rules as conversion.</p>
-        <div id="preview-status" class="preview-status" aria-live="polite"></div>
-        <div class="manual-grid" data-toc-depth="2" data-manual-type="{manual_type}" data-numbering-mode="css-counters" data-theme="manual">
-          <main class="manual" id="table-preview-root"></main>
-        </div>
-      </aside>
       </div>
     </div>
     <script>
