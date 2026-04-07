@@ -41,7 +41,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, request, render_template, render_template_string, send_file, redirect, url_for, flash
+from flask import Flask, request, render_template, render_template_string, send_file, redirect, url_for, flash, jsonify
 import markdown
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -140,6 +140,7 @@ from core.styling import (
     default_theme_settings,
     coerce_theme_settings,
     build_theme_css,
+    build_table_theme_css,
     contrast_ratio,
     resolve_reference_doc_path,
     get_reference_style_context,
@@ -2063,6 +2064,46 @@ def review(session_id):
     
     return review_html
 
+# Sample HTML for table review live preview (aligned server-side like real conversion).
+_TABLE_REVIEW_PREVIEW_SAMPLE = (
+    '<div class="manual"><table>'
+    '<thead><tr><th>Policy area</th><th>Code</th><th>Description</th></tr></thead>'
+    "<tbody>"
+    '<tr><th scope="row">Section I</th><td>101</td><td>Introductory sample text.</td></tr>'
+    "<tr><td>Sub-item</td><td>1,250</td><td>Numeric column for alignment preview.</td></tr>"
+    "<tr><td>Another row</td><td>42</td><td>Shorter cell.</td></tr>"
+    "<tr><td>Final example</td><td>900</td><td>More body content to show striping.</td></tr>"
+    "</tbody></table></div>"
+)
+
+
+@app.route("/table_review/<session_id>/preview", methods=["POST"])
+def table_review_preview(session_id):
+    """Return theme table CSS + sample table HTML for live preview (JSON)."""
+    session = SessionDir(session_id)
+    session_file = session.session_json
+    if not session_file.exists():
+        return jsonify({"ok": False, "error": "invalid_session"}), 404
+    session_data = json.loads(session_file.read_text(encoding="utf-8"))
+    manual_type = session_data.get("manual_type", "chapter")
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        body = {}
+    settings, _ = coerce_theme_settings(body, manual_type)
+    css = build_table_theme_css(settings)
+    aligned = format_manual_tables(
+        _TABLE_REVIEW_PREVIEW_SAMPLE,
+        settings.get("table_align_mode", "auto"),
+        settings.get("table_col1_align"),
+        settings.get("table_coln_align"),
+        settings.get("table_header_align"),
+    )
+    soup = BeautifulSoup(aligned, "html.parser")
+    tbl = soup.find("table")
+    table_html = str(tbl) if tbl else "<table></table>"
+    return jsonify({"ok": True, "css": css, "table_html": table_html})
+
+
 @app.route("/table_review/<session_id>", methods=["GET", "POST"])
 def table_review(session_id):
     """Review table formatting options before conversion."""
@@ -2108,23 +2149,37 @@ def table_review(session_id):
     <title>Table Review</title>
     <style>
     body {{ font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; background: #f7f7f8; }}
-    .container {{ max-width: 900px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }}
+    .container {{ max-width: 1120px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }}
     h1 {{ color: #981E32; margin-top: 0; }}
     label {{ font-weight: 600; display: block; margin: 12px 0 6px; }}
     select, input[type="number"], input[type="color"] {{ padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px; }}
     .row {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
     .checkbox {{ display: flex; align-items: center; gap: 8px; margin: 8px 0; }}
-    .actions {{ margin-top: 16px; display: flex; gap: 12px; align-items: center; }}
+    .actions {{ margin-top: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }}
     .btn {{ background: #981E32; color: #fff; border: 0; padding: 10px 16px; border-radius: 8px; cursor: pointer; text-decoration: none; }}
     .btn.secondary {{ background: #4b5563; }}
     .small {{ color: #555; font-size: 14px; }}
+    .layout-grid {{ display: grid; gap: 24px; grid-template-columns: 1fr; }}
+    @media (min-width: 960px) {{
+      .layout-grid {{ grid-template-columns: 1fr 1fr; align-items: start; }}
+    }}
+    .preview-panel {{ border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; background: #fafafa; }}
+    @media (min-width: 960px) {{
+      .preview-panel {{ position: sticky; top: 16px; }}
+    }}
+    .preview-panel h2 {{ margin-top: 0; font-size: 1.1rem; color: #374151; }}
+    #table-preview-root {{ min-height: 80px; overflow-x: auto; }}
+    .preview-status {{ font-size: 13px; color: #64748b; min-height: 1.3em; margin-bottom: 8px; }}
     </style>
+    <style id="wp-preview-base">__WP_CSS_PLACEHOLDER__</style>
+    <style id="table-preview-theme"></style>
     </head>
     <body>
     <div class="container">
       <h1>Table Review</h1>
-      <p class="small">Choose common table formatting rules before conversion. These settings are written into the exported CSS (after the base manual stylesheet).</p>
-      <form method="POST">
+      <p class="small">Choose common table formatting rules before conversion. These settings are written into the exported CSS (after the base manual stylesheet). The preview updates as you change options.</p>
+      <div class="layout-grid">
+      <form id="table-review-form" method="POST">
         <div class="row">
           <div>
             <label for="table_col1_align">Column 1 alignment</label>
@@ -2219,10 +2274,69 @@ def table_review(session_id):
           <button type="submit" name="back" value="1" class="btn secondary">Back to references</button>
         </div>
       </form>
+      <aside class="preview-panel" aria-label="Live table preview">
+        <h2>Live preview</h2>
+        <p class="small" style="margin-top:0;">Sample table (not your document). Styling matches export; cell alignment uses the same rules as conversion.</p>
+        <div id="preview-status" class="preview-status" aria-live="polite"></div>
+        <div class="manual-grid" data-toc-depth="2" data-manual-type="{manual_type}" data-numbering-mode="css-counters" data-theme="manual">
+          <main class="manual" id="table-preview-root"></main>
+        </div>
+      </aside>
+      </div>
     </div>
+    <script>
+    (function() {{
+      const form = document.getElementById("table-review-form");
+      const styleEl = document.getElementById("table-preview-theme");
+      const root = document.getElementById("table-preview-root");
+      const status = document.getElementById("preview-status");
+      const url = "/table_review/{session_id}/preview";
+      let timer;
+      function payload() {{
+        const data = {{}};
+        for (const el of form.elements) {{
+          if (!el.name || el.type === "submit" || el.type === "button") continue;
+          if (el.type === "checkbox") {{
+            data[el.name] = el.checked ? "on" : "";
+            continue;
+          }}
+          data[el.name] = el.value;
+        }}
+        return data;
+      }}
+      async function refresh() {{
+        status.textContent = "Updating…";
+        try {{
+          const r = await fetch(url, {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify(payload()),
+          }});
+          const j = await r.json();
+          if (!j.ok) {{
+            status.textContent = "Preview could not be loaded.";
+            return;
+          }}
+          styleEl.textContent = j.css;
+          root.innerHTML = j.table_html;
+          status.textContent = "";
+        }} catch (e) {{
+          status.textContent = "Preview unavailable.";
+        }}
+      }}
+      function schedule() {{
+        clearTimeout(timer);
+        timer = setTimeout(refresh, 150);
+      }}
+      form.addEventListener("input", schedule);
+      form.addEventListener("change", schedule);
+      refresh();
+    }})();
+    </script>
     </body>
     </html>
     """
+    review_html = review_html.replace("__WP_CSS_PLACEHOLDER__", get_wp_css_text())
     return review_html
 
 @app.route("/convert/<session_id>", methods=["GET"])

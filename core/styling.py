@@ -232,6 +232,11 @@ def _build_manual_table_css(settings: dict) -> str:
     """
 
 
+def build_table_theme_css(settings: dict) -> str:
+    """Table override CSS only (same rules appended after wordpress.css in exports)."""
+    return _build_manual_table_css(settings)
+
+
 def build_theme_css(settings: dict) -> str:
     """Generate dynamic CSS based on theme settings."""
     primary = settings.get("primary_color", "#8d0a0a")
@@ -246,7 +251,7 @@ def build_theme_css(settings: dict) -> str:
     .manual-toc h2 {{ color: var(--manual-primary); }}
     .manual a {{ color: {settings.get("link_color", primary)}; }}
     """
-    return css + _build_manual_table_css(settings)
+    return css + build_table_theme_css(settings)
 
 def get_wp_css_text() -> str:
     path = Path(__file__).parent.parent / "wordpress.css"
