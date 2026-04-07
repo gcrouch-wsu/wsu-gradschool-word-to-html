@@ -20,4 +20,6 @@ RUN pip install --no-cache-dir \
 COPY . .
 
 # Railway sets PORT env var
-CMD gunicorn word_to_wordpressV4:app --bind 0.0.0.0:${PORT:-5000}
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+CMD ["/app/start.sh"]
