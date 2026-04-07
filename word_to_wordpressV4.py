@@ -42,6 +42,7 @@ from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, request, render_template, render_template_string, send_file, redirect, url_for, flash
+import markdown
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 
@@ -727,6 +728,16 @@ HOME_PAGE = """
 <body>
   <h1>WSU Manual Converter</h1>
 
+  {% if not show_preview %}
+  <div class="card" style="padding: 18px 24px; margin-bottom: 24px; background: #fffbeb; border: 1px solid #fcd34d;">
+    <p class="small" style="margin: 0; color: #78350f; font-size: 15px; line-height: 1.5;">
+      <strong>How to use this tool:</strong>
+      <a href="{{ url_for('instructions') }}" style="color: #8d0a0a; font-weight: 600;">Open full instructions</a>
+      for setup, step-by-step conversion, WordPress deployment, heading maps, and troubleshooting.
+    </p>
+  </div>
+  {% endif %}
+
   {% with messages = get_flashed_messages() %}
     {% if messages %}
       {% for message in messages %}
@@ -835,7 +846,60 @@ HOME_PAGE = """
 </html>
 """
 
+INSTRUCTIONS_PAGE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Instructions — WSU Manual Converter</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.55; color: #333; max-width: 900px; margin: 0 auto; padding: 40px 20px 60px; background: #f9f9f9; }
+    h1 { color: #8d0a0a; margin-bottom: 8px; border-bottom: 2px solid #8d0a0a; padding-bottom: 10px; }
+    .back { margin-bottom: 20px; }
+    .back a { color: #8d0a0a; font-weight: 600; text-decoration: none; }
+    .back a:hover { text-decoration: underline; }
+    .card { background: white; padding: 28px 32px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+    .instructions-content :first-child { margin-top: 0; }
+    .instructions-content h2 { color: #444; font-size: 1.25rem; margin-top: 1.75rem; padding-bottom: 6px; border-bottom: 1px solid #eee; }
+    .instructions-content h3 { color: #555; font-size: 1.05rem; margin-top: 1.35rem; }
+    .instructions-content hr { border: none; border-top: 1px solid #e5e5e5; margin: 2rem 0; }
+    .instructions-content ul, .instructions-content ol { padding-left: 1.35rem; }
+    .instructions-content li { margin-bottom: 0.35rem; }
+    .instructions-content code { background: #f3f4f6; padding: 2px 7px; border-radius: 4px; font-size: 0.9em; }
+    .instructions-content pre { background: #f3f4f6; padding: 14px 16px; border-radius: 6px; overflow-x: auto; font-size: 0.88rem; line-height: 1.45; }
+    .instructions-content pre code { background: none; padding: 0; }
+    .instructions-content table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.95rem; }
+    .instructions-content th, .instructions-content td { border: 1px solid #ddd; padding: 10px 12px; text-align: left; vertical-align: top; }
+    .instructions-content th { background: #f9fafb; font-weight: 600; }
+    .instructions-content a { color: #8d0a0a; }
+    .instructions-content blockquote { margin: 1rem 0; padding-left: 1rem; border-left: 4px solid #e5e7eb; color: #555; }
+  </style>
+</head>
+<body>
+  <p class="back"><a href="{{ url_for('index') }}">← Back to converter</a></p>
+  <h1>Instructions</h1>
+  <div class="card instructions-content">
+    {{ content|safe }}
+  </div>
+</body>
+</html>
+"""
+
 # --------------------------- Routes ---------------------------
+
+@app.route("/instructions")
+def instructions():
+    instructions_path = Path(__file__).resolve().parent / "instructions.md"
+    if not instructions_path.is_file():
+        flash("Instructions are temporarily unavailable.")
+        return redirect(url_for("index"))
+    md_text = instructions_path.read_text(encoding="utf-8")
+    content_html = markdown.markdown(
+        md_text,
+        extensions=["tables", "fenced_code", "sane_lists", "nl2br"],
+    )
+    return render_template_string(INSTRUCTIONS_PAGE, content=content_html)
 
 @app.route("/", methods=["GET"])
 def index():

@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir \
     beautifulsoup4~=4.12 \
     lxml~=5.1 \
     werkzeug~=3.0 \
+    markdown~=3.6 \
     gunicorn~=22.0
 
 # Copy application
