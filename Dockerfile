@@ -19,5 +19,5 @@ RUN pip install --no-cache-dir \
 # Copy application
 COPY . .
 
-# Railway sets PORT env var at runtime
-CMD ["python", "-c", "import os, subprocess; port = os.environ.get('PORT', '5000'); subprocess.run(['gunicorn', 'word_to_wordpressV4:app', '--bind', f'0.0.0.0:{port}'])"]
+EXPOSE 8080
+CMD ["gunicorn", "word_to_wordpressV4:app", "--bind", "0.0.0.0:8080"]
