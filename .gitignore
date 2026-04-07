@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.claude/
+*.docx
+*.heading-map.json
+archive/
+tests/
+static/
+templates/

@@ -1,0 +1,1095 @@
+/* ========================================
+   Word_To_Wordpress - greg crouch
+   ======================================== */
+/* Accessibility features (WCAG 2.1 AA) */
+/* Skip to main content link - WCAG 2.4.1 (Bypass Blocks) */
+.skip-to-main {
+	position: absolute !important;
+	left: -9999px !important;
+	z-index: 9999 !important;
+	padding: 12px 20px !important;
+	background: #A60F2D !important;
+	color: #fff !important;
+	text-decoration: none !important;
+	border-radius: 4px !important;
+	font-weight: 700 !important;
+	font-size: 16px !important;
+}
+
+.skip-to-main:focus {
+	left: 10px !important;
+	top: 10px !important;
+	outline: 3px solid #fff !important;
+	outline-offset: 2px !important;
+}
+
+/* Screen reader only content - for accessibility labels */
+.sr-only {
+	position: absolute !important;
+	width: 1px !important;
+	height: 1px !important;
+	padding: 0 !important;
+	margin: -1px !important;
+	overflow: hidden !important;
+	clip: rect(0,0,0,0) !important;
+	white-space: nowrap !important;
+	border: 0 !important;
+}
+
+/* Enhanced focus indicators - WCAG 2.4.7 (Focus Visible) */
+a:focus,
+button:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 3px solid #0284c7 !important;
+	outline-offset: 2px !important;
+	box-shadow: 0 0 0 4px rgba(2,132,199,0.2) !important;
+}
+
+/* Heading copy-link icon (button) */
+.manual .heading-link-icon {
+	background: none !important;
+	border: none !important;
+	padding: 0 0 0 6px !important;
+	margin: 0 !important;
+	font: inherit !important;
+	color: #666 !important;
+	cursor: pointer !important;
+	display: inline-flex !important;
+	align-items: center !important;
+	line-height: 1 !important;
+}
+
+/* TOC link focus - enhanced visibility */
+.manual-toc a:focus {
+	background: #f6e9ee !important;
+	outline: 3px solid #0284c7 !important;
+	outline-offset: 2px !important;
+	box-shadow: 0 0 0 4px rgba(2,132,199,0.2) !important;
+}
+
+/* Button focus - enhanced visibility */
+.manual-toc .toc-expand-btn:focus {
+	outline: 3px solid #0284c7 !important;
+	outline-offset: 2px !important;
+	background: rgba(166,15,45,0.1) !important;
+}
+
+/* Search input focus */
+.manual-toc .manual-search-input:focus {
+	border-color: #0284c7 !important;
+	outline: 3px solid #0284c7 !important;
+	outline-offset: 2px !important;
+}
+
+/* Back to top button focus */
+#manual-back-to-top:focus {
+	outline: 3px solid #fff !important;
+	outline-offset: 2px !important;
+}
+
+/* Reduced motion support - WCAG 2.3.3 (Animation from Interactions) */
+@media (prefers-reduced-motion: reduce) {
+	*,
+												::before,
+												::after {
+		animation-duration: .01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: .01ms !important;
+	}
+	
+	.manual-toc .toc-expand-btn {
+		transition: none !important;
+	}
+	
+	.manual-toc .toc-subsections {
+		transition: none !important;
+	}
+	
+	.manual-toc .toc-section a {
+		transition: none !important;
+	}
+	
+	#manual-back-to-top {
+		transition: none !important;
+	}
+}
+
+/* Force container to be a proper grid */
+.manual-grid,
+.manual-grid.gspp-manual,
+div.manual-grid,
+.wp-block-html .manual-grid {
+	display: grid !important;
+	grid-template-columns: 1fr 300px !important;
+	grid-template-rows: auto !important;
+	grid-gap: 40px !important;
+	width: 100% !important;
+	max-width: 1200px !important;
+	margin: 20px 0 !important;
+	padding: 0 20px !important;
+	box-sizing: border-box !important;
+	position: relative !important;
+	align-items: start !important;
+}
+
+/* Force left alignment and override any centering */
+.manual-grid {
+	margin-left: -20px !important;
+	margin-right: auto !important;
+}
+
+/* Override any WordPress container padding/margins */
+body .manual-grid,
+.wp-site-blocks .manual-grid,
+.wp-block-group .manual-grid {
+	margin-left: -20px !important;
+}
+
+/* Remove WordPress blockquote styling and quotation marks */
+.manual blockquote::before,
+.manual blockquote::after {
+	content: none !important;
+	display: none !important;
+}
+
+.manual blockquote {
+	margin: 1rem 0 !important;
+	padding: 0 !important;
+	border: none !important;
+	background: none !important;
+	quotes: none !important;
+}
+
+.manual blockquote::before {
+	content: "" !important;
+}
+
+/* Force content column */
+.manual-grid .manual,
+.gspp-manual .manual,
+div.manual-grid div.manual {
+	grid-column: 1 !important;
+	grid-row: 1 !important;
+	width: 100% !important;
+	max-width: none !important;
+	margin: 0 !important;
+	padding: 0 !important;
+	position: relative !important;
+	z-index: 1 !important;
+}
+
+/* Force TOC column */
+/* Make body overflow visible only on this page */
+body.page-id-43010 {
+	overflow: visible !important;
+	overflow-x: visible !important;
+}
+
+/* Ensure wrappers are also visible overflow */
+body.page-id-43010 .wsu-wrapper-site,
+body.page-id-43010 .wsu-wrapper-global {
+	overflow: visible !important;
+}
+
+.manual-grid .manual-toc,
+.gspp-manual .manual-toc,
+div.manual-grid nav.manual-toc {
+	grid-column: 2 !important;
+	grid-row: 1 !important;
+	position: sticky !important;
+	top: 20px !important;
+	width: 100% !important;
+	max-width: 300px !important;
+	height: fit-content !important;
+	margin: 0 !important;
+	padding: 16px !important;
+	background: #fafafa !important;
+	border: 1px solid #e5e5e5 !important;
+	border-radius: 8px !important;
+	box-sizing: border-box !important;
+	z-index: 10 !important;
+/* Remove any absolute/fixed positioning */
+	left: auto !important;
+	right: auto !important;
+	transform: none !important;
+	overflow: auto;
+	max-height: calc(100vh - 40px);
+}
+
+/* Headings styling */
+.manual h1 {
+	color: #A60F2D !important;
+	font-size: 1.75rem !important;
+	font-weight: 700 !important;
+	margin: 1.25rem 0 .5rem !important;
+	counter-increment: manual-chapter !important;
+	counter-reset: manual-section !important;
+}
+
+/* Default: Chapter format - only apply CSS counters when not preserving original */
+.manual-grid[data-numbering-mode="css-counters"] .manual h1::before {
+	content: "Chapter " counter(manual-chapter) ". " !important;
+}
+
+/* Section format - override when data-manual-type="section" */
+.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h1::before {
+	content: "Section " counter(manual-chapter) ". " !important;
+}
+
+.manual h2 {
+	color: #4D4D4D !important;
+	font-size: 1.5rem !important;
+	font-weight: 700 !important;
+	margin: 1.25rem 0 .5rem !important;
+	counter-increment: manual-section !important;
+	counter-reset: manual-subsection !important;
+}
+
+/* Default: Chapter format - Arabic numerals - only with CSS counters */
+.manual-grid[data-numbering-mode="css-counters"] .manual h2::before {
+	content: counter(manual-chapter) "." counter(manual-section) " " !important;
+}
+
+/* Section format - use decimal numerals for chapter counter */
+.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h2::before {
+	content: counter(manual-chapter) "." counter(manual-section) " " !important;
+}
+
+.manual h3 {
+	color: #4D4D4D !important;
+	font-size: 1.25rem !important;
+	font-weight: 600 !important;
+	margin: 1rem 0 .5rem !important;
+	counter-increment: manual-subsection !important;
+	counter-reset: manual-subsubsection !important;
+}
+
+/* Default: Chapter format - only with CSS counters */
+.manual-grid[data-numbering-mode="css-counters"] .manual h3::before {
+	content: counter(manual-chapter) "." counter(manual-section) "." counter(manual-subsection) " " !important;
+}
+
+/* Section format - use decimal numerals for chapter counter */
+.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h3::before {
+	content: counter(manual-chapter) "." counter(manual-section) "." counter(manual-subsection) " " !important;
+}
+
+.manual h4 {
+	color: #4D4D4D !important;
+	font-size: 1.125rem !important;
+	font-weight: 600 !important;
+	margin: 1rem 0 .5rem !important;
+	counter-increment: manual-subsubsection !important;
+	counter-reset: manual-subsubsubsection !important;
+}
+
+/* Default: Chapter format - only with CSS counters */
+.manual-grid[data-numbering-mode="css-counters"] .manual h4::before {
+	content: counter(manual-chapter) "." counter(manual-section) "." counter(manual-subsection) "." counter(manual-subsubsection) " " !important;
+}
+
+/* Section format - use decimal numerals for chapter counter */
+.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h4::before {
+	content: counter(manual-chapter) "." counter(manual-section) "." counter(manual-subsection) "." counter(manual-subsubsection) " " !important;
+}
+
+.manual h5 {
+	color: #4D4D4D !important;
+	font-size: 1rem !important;
+	font-weight: 600 !important;
+	margin: 1rem 0 .5rem !important;
+	counter-increment: manual-subsubsubsection !important;
+}
+
+.manual h6 {
+	color: #4D4D4D !important;
+	font-size: .95rem !important;
+	font-weight: 600 !important;
+	margin: 1rem 0 .5rem !important;
+}
+
+/* List styling reset (override site-wide counter badges) */
+.manual ol,
+.manual ul {
+	list-style-position: outside !important;
+	text-align: left !important;
+}
+
+.manual ol {
+	list-style-type: decimal !important;
+	margin-left: 1.5em !important;
+	padding-left: 0 !important;
+	counter-reset: none !important;
+}
+
+.manual ol[type="a"] {
+	list-style-type: lower-alpha !important;
+}
+
+.manual ol[type="A"] {
+	list-style-type: upper-alpha !important;
+}
+
+.manual ol[type="i"] {
+	list-style-type: lower-roman !important;
+}
+
+.manual ol[type="I"] {
+	list-style-type: upper-roman !important;
+}
+
+.manual ol ol {
+	list-style-type: lower-alpha !important;
+}
+
+.manual ol ol ol {
+	list-style-type: lower-roman !important;
+}
+
+.manual ol ol ol ol {
+	list-style-type: decimal !important;
+}
+
+.manual ul {
+	list-style-type: disc !important;
+	margin-left: 1.5em !important;
+	padding-left: 0 !important;
+}
+
+.manual ul ul {
+	list-style-type: circle !important;
+}
+
+.manual ul ul ul {
+	list-style-type: square !important;
+}
+
+.manual ol > li,
+.manual ul > li {
+	padding-left: 0 !important;
+	text-align: left !important;
+	text-indent: 0 !important;
+}
+
+.manual ol > li::before,
+.manual ul > li::before {
+	content: none !important;
+	background: none !important;
+	border: 0 !important;
+}
+
+.manual ol li::marker,
+.manual ul li::marker {
+	color: inherit !important;
+	font-weight: inherit !important;
+}
+
+/* Heading offset for WordPress pages with an H1 page title */
+.manual-grid[data-heading-offset="1"] .manual h2 {
+	color: #A60F2D !important;
+	font-size: 1.75rem !important;
+	font-weight: 700 !important;
+	margin: 1.25rem 0 .5rem !important;
+	counter-increment: manual-chapter !important;
+	counter-reset: manual-section !important;
+}
+
+.manual-grid[data-heading-offset="1"] .manual h3 {
+	color: #4D4D4D !important;
+	font-size: 1.5rem !important;
+	font-weight: 700 !important;
+	margin: 1.25rem 0 .5rem !important;
+	counter-increment: manual-section !important;
+	counter-reset: manual-subsection !important;
+}
+
+.manual-grid[data-heading-offset="1"] .manual h4 {
+	color: #4D4D4D !important;
+	font-size: 1.25rem !important;
+	font-weight: 600 !important;
+	margin: 1rem 0 .5rem !important;
+	counter-increment: manual-subsection !important;
+	counter-reset: manual-subsubsection !important;
+}
+
+.manual-grid[data-heading-offset="1"] .manual h5 {
+	color: #4D4D4D !important;
+	font-size: 1.125rem !important;
+	font-weight: 600 !important;
+	margin: 1rem 0 .5rem !important;
+	counter-increment: manual-subsubsection !important;
+	counter-reset: manual-subsubsubsection !important;
+}
+
+.manual-grid[data-heading-offset="1"] .manual h6 {
+	color: #4D4D4D !important;
+	font-size: 1rem !important;
+	font-weight: 600 !important;
+	margin: 1rem 0 .5rem !important;
+	counter-increment: manual-subsubsubsection !important;
+}
+
+/* Default: Chapter format - only with CSS counters */
+.manual-grid[data-numbering-mode="css-counters"] .manual h5::before {
+	content: counter(manual-chapter) "." counter(manual-section) "." counter(manual-subsection) "." counter(manual-subsubsection) "." counter(manual-subsubsubsection) " " !important;
+}
+
+/* Section format - use decimal numerals for chapter counter */
+.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h5::before {
+	content: counter(manual-chapter) "." counter(manual-section) "." counter(manual-subsection) "." counter(manual-subsubsection) "." counter(manual-subsubsubsection) " " !important;
+}
+
+/* Heading offset numbering (WordPress embeds) */
+.manual-grid[data-heading-offset="1"][data-numbering-mode="css-counters"] .manual h2::before {
+	content: "Chapter " counter(manual-chapter) ". " !important;
+}
+
+.manual-grid[data-heading-offset="1"][data-manual-type="section"][data-numbering-mode="css-counters"] .manual h2::before {
+	content: "Section " counter(manual-chapter) ". " !important;
+}
+
+.manual-grid[data-heading-offset="1"][data-numbering-mode="css-counters"] .manual h3::before {
+	content: counter(manual-chapter) "." counter(manual-section) " " !important;
+}
+
+.manual-grid[data-heading-offset="1"][data-numbering-mode="css-counters"] .manual h4::before {
+	content: counter(manual-chapter) "." counter(manual-section) "." counter(manual-subsection) " " !important;
+}
+
+.manual-grid[data-heading-offset="1"][data-numbering-mode="css-counters"] .manual h5::before {
+	content: counter(manual-chapter) "." counter(manual-section) "." counter(manual-subsection) "." counter(manual-subsubsection) " " !important;
+}
+
+.manual-grid[data-heading-offset="1"][data-numbering-mode="css-counters"] .manual h6::before {
+	content: counter(manual-chapter) "." counter(manual-section) "." counter(manual-subsection) "." counter(manual-subsubsection) "." counter(manual-subsubsubsection) " " !important;
+}
+
+/* Safety net: Ensure no counters when mode is preserve */
+.manual-grid[data-numbering-mode="preserve"] .manual h1::before,
+.manual-grid[data-numbering-mode="preserve"] .manual h2::before,
+.manual-grid[data-numbering-mode="preserve"] .manual h3::before,
+.manual-grid[data-numbering-mode="preserve"] .manual h4::before,
+.manual-grid[data-numbering-mode="preserve"] .manual h5::before,
+.manual-grid[data-numbering-mode="preserve"] .manual h6::before {
+	content: none !important;
+}
+
+/* TOC styling */
+.manual-toc {
+	font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif !important;
+	font-size: 14px !important;
+}
+
+.manual-toc h2 {
+	margin: 4px 0 8px !important;
+	font-weight: 700 !important;
+	font-size: 1.1rem !important;
+	color: #A60F2D !important;
+}
+
+.manual-toc h2::before {
+	content: none !important;
+}
+
+.manual-toc .manual-search-input,
+.manual-toc input[type="search"] {
+	width: 100% !important;
+	padding: 8px 10px !important;
+	margin: 6px 0 10px !important;
+	border: 1px solid #ddd !important;
+	border-radius: 6px !important;
+	box-sizing: border-box !important;
+}
+
+.manual-toc .manual-search {
+	position: relative !important;
+}
+
+.manual-toc .manual-search .manual-search-input,
+.manual-toc .manual-search input[type="search"] {
+	padding-right: 34px !important;
+}
+
+.manual-toc .manual-search-clear {
+	position: absolute !important;
+	right: 8px !important;
+	top: 50% !important;
+	transform: translateY(-50%) !important;
+	width: 20px !important;
+	height: 20px !important;
+	border-radius: 999px !important;
+	border: 1px solid #e3c2cb !important;
+	background: #f6e9ee !important;
+	color: #8A0D26 !important;
+	font-size: 14px !important;
+	font-weight: 700 !important;
+	display: none;
+	align-items: center !important;
+	justify-content: center !important;
+	cursor: pointer !important;
+	padding: 0 !important;
+	line-height: 1 !important;
+	z-index: 1 !important;
+}
+
+.manual-toc .manual-search.has-value .manual-search-clear {
+	display: flex !important;
+}
+
+.manual-toc .manual-search-clear:hover,
+.manual-toc .manual-search-clear:focus {
+	background: #f0d6dd !important;
+	color: #7a0b21 !important;
+	outline: 2px solid #A60F2D !important;
+	outline-offset: 2px !important;
+}
+
+.manual-toc ul {
+	list-style: none !important;
+	margin: 0 !important;
+	padding: 0 !important;
+}
+
+.manual-toc li {
+	margin: 2px 0 !important;
+}
+
+.manual-toc li[data-level="2"] {
+	margin-left: 12px !important;
+}
+
+.manual-toc a {
+	display: block !important;
+	padding: 4px 6px !important;
+	text-decoration: none !important;
+	color: inherit !important;
+	border-radius: 4px !important;
+	font-size: 14px !important;
+	font-weight: 500 !important;
+}
+
+.manual-toc a:hover,
+.manual-toc a:active {
+	background: #f6e9ee !important;
+	text-decoration: none !important;
+}
+
+/* H1 TOC entries - larger and crimson */
+.manual-toc li[data-level="1"] a {
+	color: #A60F2D !important;
+	font-size: 16px !important;
+	font-weight: 600 !important;
+}
+
+/* H2+ TOC entries - WCAG 1.4.3 (Contrast Minimum) */
+.manual-toc li[data-level="2"] a,
+.manual-toc li[data-level="3"] a,
+.manual-toc li[data-level="4"] a,
+.manual-toc li[data-level="5"] a,
+.manual-toc li[data-level="6"] a {
+	font-size: 13px !important;
+	font-weight: 400 !important;
+	color: #4a4a4a !important;
+}
+
+/* TOC search highlight */
+.manual-toc .manual-search-highlight {
+	background: #fff3cd !important;
+	color: inherit !important;
+	padding: 0 2px !important;
+	border-radius: 2px !important;
+	font-weight: 700 !important;
+}
+
+/* TOC search results buttons */
+.manual-toc .manual-search-results button {
+	background: transparent !important;
+	color: inherit !important;
+}
+
+.manual-toc .manual-search-results button:hover {
+	background: transparent !important;
+}
+
+.manual-toc .manual-search-results button:focus,
+.manual-toc .manual-search-results button:focus-visible,
+.manual-toc .manual-search-results button:active {
+	background: transparent !important;
+	outline: 2px solid #A60F2D !important;
+	outline-offset: 2px !important;
+	box-shadow: 0 0 0 3px rgba(166,15,45,0.2) !important;
+}
+
+.manual-toc .manual-search-results button.manual-search-result-active {
+	background: #f6e9ee !important;
+	outline: 2px solid #A60F2D !important;
+	outline-offset: 2px !important;
+	box-shadow: 0 0 0 3px rgba(166,15,45,0.15) !important;
+}
+
+/* Search target highlight (outline only, persistent until next selection) */
+.manual .manual-search-target {
+	outline: 3px solid #A60F2D !important;
+	outline-offset: 4px !important;
+}
+
+/* Active link - WCAG 1.4.3 */
+.manual-toc a.active {
+	background: #f6e9ee !important;
+/* Match hover/focus background for consistency */
+	box-shadow: inset 3px 0 0 #A60F2D !important;
+	color: #8A0D26 !important;
+/* Darker text for better contrast */
+	font-weight: 600 !important;
+/* Bolder for emphasis */
+}
+
+/* === Collapsible TOC styling === */
+/* Chapter header styling */
+.manual-toc .toc-chapter-header {
+	display: flex !important;
+	align-items: center !important;
+	padding: 4px 0 !important;
+	cursor: pointer !important;
+}
+
+/* Expand/collapse button - WCAG 2.5.5 (Target Size) */
+.manual-toc .toc-expand-btn {
+	background: none !important;
+	border: none !important;
+	cursor: pointer !important;
+	padding: 10px !important;
+	margin-right: 6px !important;
+	font-size: 14px !important;
+	color: #4a4a4a !important;
+	transition: transform .3s ease, color .2s ease !important;
+	min-width: 44px !important;
+/* Minimum touch target width */
+	min-height: 44px !important;
+/* Minimum touch target height */
+	text-align: center !important;
+	border-radius: 3px !important;
+	display: inline-flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+}
+
+.manual-toc .toc-expand-btn:hover {
+	color: #A60F2D !important;
+}
+
+/* Rotation animation for the expand button */
+.manual-toc .toc-expand-btn[aria-expanded="true"] {
+	transform: rotate(90deg) !important;
+}
+
+.manual-toc .toc-expand-btn[aria-expanded="false"] {
+	transform: rotate(0deg) !important;
+}
+
+/* Chapter links */
+.manual-toc .toc-chapter a {
+	color: #A60F2D !important;
+	font-size: 16px !important;
+	font-weight: 600 !important;
+	text-decoration: none !important;
+	flex: 1 !important;
+}
+
+.manual-toc .toc-chapter a:hover {
+	background: none !important;
+	text-decoration: underline !important;
+}
+
+/* Subsection styling (class toggles) */
+.manual-toc .toc-subsections {
+	margin: 4px 0 0 26px !important;
+	padding: 0 !important;
+	list-style: none !important;
+	border-left: 2px solid rgba(166,15,45,0.2) !important;
+	padding-left: 8px !important;
+	transition: all .3s ease !important;
+	overflow: hidden !important;
+	opacity: 1 !important;
+}
+
+/* Collapsed state */
+.manual-toc .toc-subsections.toc-collapsed {
+	display: none !important;
+	max-height: 0 !important;
+	opacity: 0 !important;
+}
+
+/* Expanded state */
+.manual-toc .toc-subsections.toc-expanded {
+	display: block !important;
+	max-height: none !important;
+	opacity: 1 !important;
+}
+
+.manual-toc .toc-section a {
+	display: block !important;
+	padding: 3px 6px !important;
+	text-decoration: none !important;
+	color: #4a4a4a !important;
+	border-radius: 3px !important;
+	font-size: 13px !important;
+	font-weight: 400 !important;
+	transition: all .2s ease !important;
+}
+
+.manual-toc .toc-section a:hover {
+	color: #1a1a1a !important;
+}
+
+.manual-toc .toc-section a.active {
+	background: #e5d0d5 !important;
+/* Improved contrast */
+	color: #8A0D26 !important;
+	font-weight: 600 !important;
+}
+
+/* Override the default TOC li styling for chapters */
+.manual-toc .toc-chapter {
+	margin: 8px 0 !important;
+	border-bottom: 1px solid rgba(166,15,45,0.1) !important;
+	padding-bottom: 4px !important;
+}
+
+.manual-toc .toc-section {
+	margin: 1px 0 !important;
+}
+
+/* Active chapter styling */
+.manual-toc .toc-chapter.has-active-section {
+	background: rgba(166,15,45,0.03) !important;
+	border-radius: 4px !important;
+	padding: 4px !important;
+	margin: 4px -4px !important;
+}
+
+/* Mobile override - still force two columns */
+@media (max-width: 960px) {
+	.manual-grid,
+												.manual-grid.gspp-manual {
+		grid-template-columns: 1fr 250px !important;
+		grid-gap: 20px !important;
+		padding: 0 10px !important;
+	}
+	
+	.manual-toc {
+		max-width: 250px !important;
+		font-size: .9rem !important;
+		padding: 12px !important;
+	}
+}
+
+/* Back to top button - More prominent */
+#manual-back-to-top {
+	position: fixed !important;
+	right: 20px !important;
+	bottom: 30px !important;
+	padding: 12px 16px !important;
+	border-radius: 8px !important;
+	border: 2px solid #A60F2D !important;
+	background: #A60F2D !important;
+	box-shadow: 0 4px 12px rgba(166,15,45,0.3) !important;
+	font: 700 15px/1.2 inherit !important;
+	color: #fff !important;
+	opacity: .9 !important;
+	transition: all .2s ease !important;
+	cursor: pointer !important;
+	z-index: 1000 !important;
+	min-width: 60px !important;
+	text-align: center !important;
+}
+
+#manual-back-to-top:hover {
+	opacity: 1 !important;
+	background: #8A0D26 !important;
+	border-color: #8A0D26 !important;
+	transform: translateY(-2px) !important;
+	box-shadow: 0 6px 16px rgba(166,15,45,0.4) !important;
+}
+
+.manual-grid[data-theme="faculty"] .manual {
+	font-family: "Source Sans Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+	font-size: 16px !important;
+	line-height: 1.6 !important;
+	color: #000000 !important;
+}
+
+.manual-grid[data-theme="faculty"] .manual p,
+.manual-grid[data-theme="faculty"] .manual ul,
+.manual-grid[data-theme="faculty"] .manual ol,
+.manual-grid[data-theme="faculty"] .manual blockquote,
+.manual-grid[data-theme="faculty"] .manual li,
+.manual-grid[data-theme="faculty"] .manual span {
+	font-family: "Source Sans Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+	font-size: 16px !important;
+	line-height: 1.6 !important;
+	color: #000000 !important;
+}
+
+.manual-grid[data-theme="faculty"] .manual ol li::marker {
+	color: #4D4D4D !important;
+	font-weight: 500 !important;
+}
+
+.manual-grid[data-theme="faculty"] .manual ul li::marker {
+	color: #4D4D4D !important;
+	font-weight: 500 !important;
+}
+
+.manual-grid[data-theme="faculty"]:not([data-heading-offset="1"]) .manual h1, .manual-grid[data-theme="faculty"][data-heading-offset="1"] .manual h2 {
+	color: #A60F2D !important;
+	font-size: 1.75rem !important;
+	font-weight: 700 !important;
+}
+
+.manual-grid[data-theme="faculty"]:not([data-heading-offset="1"]) .manual h2, .manual-grid[data-theme="faculty"][data-heading-offset="1"] .manual h3 {
+	color: #4D4D4D !important;
+	font-size: 1.5rem !important;
+	font-weight: 700 !important;
+}
+
+.manual-grid[data-theme="faculty"]:not([data-heading-offset="1"]) .manual h3, .manual-grid[data-theme="faculty"][data-heading-offset="1"] .manual h4 {
+	color: #4D4D4D !important;
+	font-size: 1.25rem !important;
+	font-weight: 600 !important;
+}
+
+.manual-grid[data-theme="faculty"]:not([data-heading-offset="1"]) .manual h4, .manual-grid[data-theme="faculty"][data-heading-offset="1"] .manual h5 {
+	color: #4D4D4D !important;
+	font-size: 1.125rem !important;
+	font-weight: 600 !important;
+}
+
+.manual-grid[data-theme="faculty"]:not([data-heading-offset="1"]) .manual h5, .manual-grid[data-theme="faculty"][data-heading-offset="1"] .manual h6 {
+	color: #4D4D4D !important;
+	font-size: 1rem !important;
+	font-weight: 600 !important;
+}
+
+.manual-grid[data-theme="faculty"]:not([data-heading-offset="1"]) .manual h6 {
+	color: #4D4D4D !important;
+	font-size: .95rem !important;
+	font-weight: 600 !important;
+}
+
+.manual-grid[data-theme="faculty"] .manual a {
+	color: #A60F2D !important;
+	border-bottom-color: #A60F2D !important;
+}
+
+.manual-grid[data-theme="faculty"] .manual ol,
+.manual-grid[data-theme="faculty"] .manual ul {
+	margin-left: 2.5em !important;
+	list-style-position: outside !important;
+	text-align: left !important;
+	padding-left: 0 !important;
+}
+
+.manual-grid[data-theme="faculty"] .manual ol > li,
+.manual-grid[data-theme="faculty"] .manual ul > li {
+	text-align: left !important;
+	text-indent: 0 !important;
+	padding-left: .5em !important;
+}
+
+.manual-grid[data-theme="faculty"] .manual-toc {
+	font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif !important;
+	background: #FAFAFA !important;
+	border-color: #E5E5E5 !important;
+}
+
+.manual-grid[data-theme="faculty"] .manual-toc h2 {
+	color: #A60F2D !important;
+}
+
+.manual-grid[data-theme="faculty"] .manual-toc a {
+	color: #4A4A4A !important;
+}
+
+.manual-grid[data-theme="faculty"] .manual-toc a:hover,
+.manual-grid[data-theme="faculty"] .manual-toc a:active {
+	background: #F6E9EE !important;
+}
+
+.manual-grid[data-theme="faculty"] .manual-toc a.active {
+	background: #F6E9EE !important;
+	box-shadow: inset 3px 0 0 #A60F2D !important;
+}
+
+/* ====================================================
+   Manual Typography — Unified Overrides - greg crouch
+   ==================================================== */
+.manual {
+	counter-reset: manual-chapter !important;
+	font-family: "Source Sans Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+	font-size: 16px !important;
+	font-weight: 400 !important;
+	line-height: 1.6 !important;
+	color: #000 !important;
+	letter-spacing: .01em !important;
+	word-break: normal !important;
+}
+
+.manual p,
+.manual ul,
+.manual ol,
+.manual blockquote {
+	margin-bottom: 1.2rem !important;
+}
+
+.manual li {
+	margin-bottom: .4rem !important;
+}
+
+.manual *,
+.manual p,
+.manual li,
+.manual ol,
+.manual ul,
+.manual blockquote,
+.manual span {
+	color: #000 !important;
+	font-family: "Source Sans Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+	font-size: 16px !important;
+	font-weight: 400 !important;
+	line-height: 1.6 !important;
+	letter-spacing: .01em !important;
+	word-break: normal !important;
+}
+
+/* Table consistency */
+.manual table,
+.manual table th,
+.manual table td {
+	font-family: "Source Sans Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+	font-size: 16px !important;
+	font-weight: 400 !important;
+	color: #000 !important;
+	line-height: 1.6 !important;
+	vertical-align: top;
+	padding: .5rem 1rem;
+	border: 1px solid #ddd;
+}
+
+/* Crimson hyperlinks — WSU branding */
+.manual a {
+	color: #A60F2D !important;
+	text-decoration: none !important;
+	border-bottom: 1px solid #A60F2D !important;
+}
+
+.manual a:hover {
+	color: #8A0D26 !important;
+	border-bottom-color: #8A0D26 !important;
+}
+
+/* List styling reset (override site-wide counter badges) */
+.manual ol,
+.manual ul {
+	list-style-position: outside !important;
+	text-align: left !important;
+}
+
+.manual ol {
+	list-style-type: decimal !important;
+	margin-left: 1.5em !important;
+	padding-left: 0 !important;
+	counter-reset: none !important;
+}
+
+/* List marker normalization for WordPress theme overrides */
+/* Kill Theme Badges (Circles) */
+.manual-grid .manual ol > li::before,
+.manual-grid .manual ul > li::before,
+div.manual-grid .manual ol > li::before,
+div.manual-grid .manual ul > li::before,
+body .manual-grid .manual ol > li::before,
+body .manual-grid .manual ul > li::before {
+	content: none !important;
+	display: none !important;
+}
+
+/* Force List Behavior & Alignment */
+.manual-grid .manual ol,
+.manual-grid .manual ul {
+	margin-left: 0 !important;
+	padding-left: 2.5em !important;
+	list-style-position: outside !important;
+}
+
+.manual-grid .manual ol > li,
+.manual-grid .manual ul > li {
+	margin-bottom: .5em !important;
+	line-height: 1.6 !important;
+	display: list-item !important;
+	padding-left: 0 !important;
+}
+
+/* Level 1: Lowercase Alpha (a, b, c...) */
+.manual-grid .manual ol.list-alpha-lower,
+.manual-grid .manual ol[type="a"] {
+	list-style-type: lower-alpha !important;
+}
+
+.manual-grid .manual ol.list-alpha-lower > li,
+.manual-grid .manual ol[type="a"] > li {
+	list-style-type: lower-alpha !important;
+}
+
+/* Level 2: Lowercase Roman (i, ii, iii...) */
+.manual-grid .manual ol.list-roman-lower,
+.manual-grid .manual ol[type="i"] {
+	list-style-type: lower-roman !important;
+}
+
+.manual-grid .manual ol.list-roman-lower > li,
+.manual-grid .manual ol[type="i"] > li {
+	list-style-type: lower-roman !important;
+}
+
+/* Level 3: Decimal (1, 2, 3...) */
+.manual-grid .manual ol.list-decimal,
+.manual-grid .manual ol[type="1"] {
+	list-style-type: decimal !important;
+}
+
+.manual-grid .manual ol.list-decimal > li,
+.manual-grid .manual ol[type="1"] > li {
+	list-style-type: decimal !important;
+}
+
+/* Level 4: Fallback Decimal */
+.manual-grid .manual ol ol ol ol {
+	list-style-type: decimal !important;
+}
+
+/* UPPERCASE Variants (Backups) */
+.manual-grid .manual ol.list-alpha-upper,
+.manual-grid .manual ol[type="A"] {
+	list-style-type: upper-alpha !important;
+}
+
+.manual-grid .manual ol.list-roman-upper,
+.manual-grid .manual ol[type="I"] {
+	list-style-type: upper-roman !important;
+}
+
+/* Unordered Lists */
+.manual-grid .manual ul {
+	list-style-type: disc !important;
+}
+
+.manual-grid .manual ul ul {
+	list-style-type: circle !important;
+}
+
+.manual-grid .manual ul ul ul {
+	list-style-type: square !important;
+}
