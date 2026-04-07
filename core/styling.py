@@ -42,33 +42,201 @@ def default_theme_settings(manual_type: str = "chapter", theme_id: str | None = 
         "font_family": "system-ui, -apple-system, sans-serif",
         "base_font_size": 16,
         "line_height": 1.6,
-        "table_align_mode": "auto"
+        "table_align_mode": "auto",
+        "table_col1_align": None,
+        "table_coln_align": None,
+        "table_header_align": None,
+        "table_layout_mode": "auto",
+        "table_block_align": "full",
+        "table_header_bg": "#f5f5f5",
+        "table_header_color": "#000000",
+        "table_header_bold": False,
+        "table_border_color": "#dddddd",
+        "table_border_width": 1,
+        "table_border_style": "solid",
+        "table_cell_padding": 8,
+        "table_row_stripe": False,
+        "table_row_stripe_color": "#f9fafb",
     }
 
-def coerce_theme_settings(raw_settings: dict | None, manual_type: str) -> tuple[dict, list[str]]:
-    """Validate and normalize theme settings from a form or JSON."""
+_ALIGN_KEYS = frozenset({"table_col1_align", "table_coln_align", "table_header_align"})
+_BOOL_KEYS = frozenset({"table_header_bold", "table_row_stripe"})
+
+
+def _coerce_align_value(val) -> str | None:
+    if val is None:
+        return None
+    s = str(val).strip().lower()
+    if s in ("", "auto", "none"):
+        return None
+    return s if s in ("left", "center", "right") else None
+
+
+def coerce_theme_settings(
+    raw_settings: dict | None,
+    manual_type: str,
+    prior: dict | None = None,
+) -> tuple[dict, list[str]]:
+    """Validate and normalize theme settings from a form or JSON.
+
+    ``prior`` is merged after defaults so partial forms (e.g. preview theme panel)
+    do not wipe unrelated keys like table options.
+    """
     settings = default_theme_settings(manual_type)
-    warnings = []
+    warnings: list[str] = []
+    if prior:
+        for key in settings:
+            if key in prior:
+                settings[key] = prior[key]
     if not raw_settings:
-        return settings, warnings
-        
+        return _finalize_theme_settings(settings, warnings)
+
     for key in settings:
-        if key in raw_settings:
-            val = raw_settings[key]
-            if "color" in key:
-                settings[key] = normalize_hex_color(str(val), settings[key])
-            elif "font_size" in key or "line_height" in key:
-                settings[key] = clamp_number(val, 8, 72, settings[key])
-            else:
-                settings[key] = val
-                
+        if key not in raw_settings:
+            continue
+        val = raw_settings[key]
+        if key in _BOOL_KEYS:
+            settings[key] = str(val).lower() in ("1", "true", "yes", "on")
+        elif key in _ALIGN_KEYS:
+            coerced = _coerce_align_value(val)
+            if val not in (None, "") and str(val).strip().lower() not in ("", "auto", "none") and coerced is None:
+                warnings.append(f"Ignored invalid table alignment for {key}.")
+            settings[key] = coerced
+        elif "color" in key:
+            fb = settings[key] if isinstance(settings[key], str) else "#000000"
+            settings[key] = normalize_hex_color(str(val), fb)
+        elif key == "base_font_size":
+            settings[key] = int(clamp_number(val, 8, 72, settings[key]))
+        elif key == "line_height":
+            settings[key] = clamp_number(val, 1.0, 3.0, settings[key])
+        elif key == "table_border_width":
+            settings[key] = clamp_number(val, 0, 8, settings[key])
+        elif key == "table_cell_padding":
+            settings[key] = int(clamp_number(val, 0, 48, settings[key]))
+        elif key == "table_layout_mode":
+            s = str(val).strip().lower()
+            settings[key] = s if s in ("auto", "fixed") else "auto"
+        elif key == "table_block_align":
+            s = str(val).strip().lower()
+            settings[key] = s if s in ("full", "center", "left") else "full"
+        elif key == "table_border_style":
+            s = str(val).strip().lower()
+            settings[key] = s if s in ("solid", "dashed", "dotted", "none") else "solid"
+        elif key == "table_align_mode":
+            s = str(val).strip().lower()
+            allowed = ("auto", "left_all", "center_all", "right_all", "right_numeric", "auto_skip_first")
+            settings[key] = s if s in allowed else "auto"
+        else:
+            settings[key] = val
+
+    return _finalize_theme_settings(settings, warnings)
+
+
+def _finalize_theme_settings(settings: dict, warnings: list[str]) -> tuple[dict, list[str]]:
+    for key in _ALIGN_KEYS:
+        settings[key] = _coerce_align_value(settings.get(key))
+    s = str(settings.get("table_border_style", "solid")).strip().lower()
+    settings["table_border_style"] = s if s in ("solid", "dashed", "dotted", "none") else "solid"
+    s = str(settings.get("table_layout_mode", "auto")).strip().lower()
+    settings["table_layout_mode"] = s if s in ("auto", "fixed") else "auto"
+    s = str(settings.get("table_block_align", "full")).strip().lower()
+    settings["table_block_align"] = s if s in ("full", "center", "left") else "full"
+    for bk in _BOOL_KEYS:
+        settings[bk] = bool(settings.get(bk))
     return settings, warnings
+
+
+def _build_manual_table_css(settings: dict) -> str:
+    """Scoped rules that override wordpress.css table defaults (!important)."""
+    layout = settings.get("table_layout_mode", "auto")
+    if layout not in ("auto", "fixed"):
+        layout = "auto"
+    block = str(settings.get("table_block_align", "full")).lower()
+    if block not in ("full", "center", "left"):
+        block = "full"
+
+    if block == "full":
+        block_css = """
+    .manual-grid .manual table {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }"""
+    elif block == "center":
+        block_css = """
+    .manual-grid .manual table {
+        width: auto !important;
+        max-width: 100% !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }"""
+    else:
+        block_css = """
+    .manual-grid .manual table {
+        width: auto !important;
+        max-width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: auto !important;
+    }"""
+
+    hdr_bg = normalize_hex_color(str(settings.get("table_header_bg", "#f5f5f5")), "#f5f5f5")
+    hdr_fg = normalize_hex_color(str(settings.get("table_header_color", "#000000")), "#000000")
+    bd_color = normalize_hex_color(str(settings.get("table_border_color", "#dddddd")), "#dddddd")
+    stripe = normalize_hex_color(str(settings.get("table_row_stripe_color", "#f9fafb")), "#f9fafb")
+    try:
+        bw = float(settings.get("table_border_width", 1))
+    except (TypeError, ValueError):
+        bw = 1.0
+    bw = max(0.0, min(8.0, bw))
+    pad = int(clamp_number(settings.get("table_cell_padding", 8), 0, 48, 8))
+    bstyle = str(settings.get("table_border_style", "solid")).lower()
+    if bstyle not in ("solid", "dashed", "dotted", "none"):
+        bstyle = "solid"
+    bold = bool(settings.get("table_header_bold"))
+    stripe_on = bool(settings.get("table_row_stripe"))
+    fw = "700" if bold else "400"
+
+    if bstyle == "none":
+        border_rule = "border: none !important;"
+    else:
+        border_rule = f"border: {bw}px {bstyle} {bd_color} !important;"
+
+    stripe_rule = ""
+    if stripe_on:
+        stripe_rule = f"""
+    .manual-grid .manual table tbody tr:nth-child(even) th,
+    .manual-grid .manual table tbody tr:nth-child(even) td {{
+        background-color: {stripe} !important;
+    }}"""
+
+    return f"""
+    /* Session table theme (overrides wordpress.css) */
+    .manual-grid .manual table {{
+        border-collapse: collapse !important;
+        table-layout: {layout} !important;
+    }}
+    {block_css}
+    .manual-grid .manual table th,
+    .manual-grid .manual table td {{
+        {border_rule}
+        padding: {pad}px !important;
+        vertical-align: top !important;
+    }}
+    .manual-grid .manual table th {{
+        background-color: {hdr_bg} !important;
+        color: {hdr_fg} !important;
+        font-weight: {fw} !important;
+    }}
+    {stripe_rule}
+    """
+
 
 def build_theme_css(settings: dict) -> str:
     """Generate dynamic CSS based on theme settings."""
     primary = settings.get("primary_color", "#8d0a0a")
     font = settings.get("font_family", "sans-serif")
-    
+
     css = f"""
     :root {{
         --manual-primary: {primary};
@@ -78,7 +246,7 @@ def build_theme_css(settings: dict) -> str:
     .manual-toc h2 {{ color: var(--manual-primary); }}
     .manual a {{ color: {settings.get("link_color", primary)}; }}
     """
-    return css
+    return css + _build_manual_table_css(settings)
 
 def get_wp_css_text() -> str:
     path = Path(__file__).parent.parent / "wordpress.css"

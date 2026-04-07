@@ -438,6 +438,16 @@ def format_manual_tables(soup_or_html, align_mode: str = "auto", col1_align: str
 
 def _format_manual_tables_impl(soup: BeautifulSoup, align_mode: str = "auto", col1_align: str | None = None, coln_align: str | None = None, header_align: str | None = None) -> None:
     mode = (align_mode or "auto").strip().lower()
+    def norm_align(v: str | None) -> str | None:
+        if v is None:
+            return None
+        s = str(v).strip().lower()
+        if s in ("", "auto", "none"):
+            return None
+        return s if s in ("left", "center", "right") else None
+    c1 = norm_align(col1_align)
+    cn = norm_align(coln_align)
+    ha = norm_align(header_align)
     def is_num(t):
         if not t: return True
         t = t.strip(); normalized = re.sub(r'[\s$,%\u00a0\u2013\u2014]', '', t)
@@ -460,7 +470,10 @@ def _format_manual_tables_impl(soup: BeautifulSoup, align_mode: str = "auto", co
             cells = row.find_all(['th', 'td'])
             for idx, td in enumerate(cells):
                 num = is_num(td.get_text().strip())
-                if col1_align and coln_align: a = col1_align if idx == 0 else coln_align
+                if td.name == "th" and ha:
+                    a = ha
+                elif c1 and cn:
+                    a = c1 if idx == 0 else cn
                 elif mode == "left_all": a = "left"
                 elif mode == "center_all": a = "center"
                 elif mode == "right_all": a = "right"

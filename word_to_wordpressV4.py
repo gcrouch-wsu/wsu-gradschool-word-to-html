@@ -2088,8 +2088,12 @@ def table_review(session_id):
     theme_settings, warnings = coerce_theme_settings(session_data.get('theme_settings'), manual_type)
 
     if request.method == "POST":
-        updates = session_data.get('theme_settings', {}).copy()
-        updates.update(request.form.to_dict())
+        fd = request.form.to_dict()
+        for bkey in ("table_header_bold", "table_row_stripe"):
+            if bkey not in request.form:
+                fd[bkey] = ""
+        updates = session_data.get("theme_settings", {}).copy()
+        updates.update(fd)
         theme_settings, warnings = coerce_theme_settings(updates, manual_type)
         session_data['theme_settings'] = theme_settings
         session_file.write_text(json.dumps(session_data, indent=2, default=str), encoding='utf-8')
@@ -2119,12 +2123,13 @@ def table_review(session_id):
     <body>
     <div class="container">
       <h1>Table Review</h1>
-      <p class="small">Choose common table formatting rules before conversion.</p>
+      <p class="small">Choose common table formatting rules before conversion. These settings are written into the exported CSS (after the base manual stylesheet).</p>
       <form method="POST">
         <div class="row">
           <div>
             <label for="table_col1_align">Column 1 alignment</label>
             <select id="table_col1_align" name="table_col1_align">
+              <option value="auto" {"selected" if not theme_settings.get("table_col1_align") else ""}>Automatic (converter)</option>
               <option value="left" {"selected" if theme_settings.get("table_col1_align") == "left" else ""}>Left</option>
               <option value="center" {"selected" if theme_settings.get("table_col1_align") == "center" else ""}>Center</option>
               <option value="right" {"selected" if theme_settings.get("table_col1_align") == "right" else ""}>Right</option>
@@ -2133,14 +2138,16 @@ def table_review(session_id):
           <div>
             <label for="table_coln_align">Columns 2+ alignment</label>
             <select id="table_coln_align" name="table_coln_align">
+              <option value="auto" {"selected" if not theme_settings.get("table_coln_align") else ""}>Automatic (converter)</option>
               <option value="left" {"selected" if theme_settings.get("table_coln_align") == "left" else ""}>Left</option>
               <option value="center" {"selected" if theme_settings.get("table_coln_align") == "center" else ""}>Center</option>
               <option value="right" {"selected" if theme_settings.get("table_coln_align") == "right" else ""}>Right</option>
             </select>
           </div>
           <div>
-            <label for="table_header_align">Header row alignment</label>
+            <label for="table_header_align"><code>&lt;th&gt;</code> alignment</label>
             <select id="table_header_align" name="table_header_align">
+              <option value="auto" {"selected" if not theme_settings.get("table_header_align") else ""}>Same as body cells</option>
               <option value="left" {"selected" if theme_settings.get("table_header_align") == "left" else ""}>Left</option>
               <option value="center" {"selected" if theme_settings.get("table_header_align") == "center" else ""}>Center</option>
               <option value="right" {"selected" if theme_settings.get("table_header_align") == "right" else ""}>Right</option>
@@ -2151,6 +2158,14 @@ def table_review(session_id):
             <select id="table_layout_mode" name="table_layout_mode">
               <option value="auto" {"selected" if theme_settings.get("table_layout_mode") == "auto" else ""}>Auto</option>
               <option value="fixed" {"selected" if theme_settings.get("table_layout_mode") == "fixed" else ""}>Fixed</option>
+            </select>
+          </div>
+          <div>
+            <label for="table_block_align">Table width / horizontal position</label>
+            <select id="table_block_align" name="table_block_align">
+              <option value="full" {"selected" if theme_settings.get("table_block_align", "full") == "full" else ""}>Full width</option>
+              <option value="center" {"selected" if theme_settings.get("table_block_align", "full") == "center" else ""}>Centered (fit content)</option>
+              <option value="left" {"selected" if theme_settings.get("table_block_align", "full") == "left" else ""}>Left (fit content)</option>
             </select>
           </div>
         </div>
@@ -2561,7 +2576,11 @@ def update_theme():
     if 'reset_theme' in request.form:
         theme_settings, warnings = coerce_theme_settings(None, manual_type)
     else:
-        theme_settings, warnings = coerce_theme_settings(request.form.to_dict(), manual_type)
+        theme_settings, warnings = coerce_theme_settings(
+            request.form.to_dict(),
+            manual_type,
+            prior=session_data.get("theme_settings"),
+        )
     
     session_data['theme_settings'] = theme_settings
     session_file.write_text(json.dumps(session_data, indent=2), encoding='utf-8')
