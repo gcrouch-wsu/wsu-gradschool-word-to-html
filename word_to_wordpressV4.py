@@ -837,6 +837,10 @@ HOME_PAGE = """
           <input type="file" name="html_file" accept=".html,.htm" required style="margin-bottom:10px">
           <label for="stable_heading_map_file_html" style="font-size:13px;">Heading map JSON (optional):</label>
           <input id="stable_heading_map_file_html" type="file" name="stable_heading_map_file" accept=".json,application/json" style="margin-bottom:10px">
+          <div class="checkbox" style="margin-bottom:12px;">
+            <input id="edit_tables_html" name="edit_tables" type="checkbox">
+            <label for="edit_tables_html">Open table review before export (if tables are detected)</label>
+          </div>
           <button type="submit" style="padding: 8px 16px; font-size:14px">Import HTML</button>
         </form>
       </div>
@@ -2593,6 +2597,7 @@ def export_session(session_id):
         "manual_type": session_data.get('manual_type', 'chapter'),
         "toc_depth": session_data.get('toc_depth', 2),
         "mapping_mode": session_data.get('mapping_mode', 'map_new'),
+        "edit_tables": session_data.get('edit_tables', False),
         "theme_settings": session_data.get('theme_settings', {}),
         "heading_edits": session_data.get('heading_edits', {}),
         "stable_heading_map": session_data.get('stable_heading_map', {}),
@@ -2636,6 +2641,7 @@ def import_html():
     f.save(str(html_path))
 
     strip_docx_formatting = "strip_docx_formatting" in request.form
+    edit_tables = "edit_tables" in request.form
     stable_heading_map, stable_heading_map_raw = load_heading_id_map_from_request()
 
     try:
@@ -2704,6 +2710,7 @@ def import_html():
             'html_path': str(html_path),
             'rebuild_links': False,
             'strip_docx_formatting': strip_docx_formatting,
+            'edit_tables': edit_tables,
             'theme_settings': theme_settings,
             'heading_edits': {},
             'style_panels': {"doc": True, "toc": False, "heading": False},
@@ -2874,6 +2881,7 @@ def import_bundle():
                 'stable_heading_map': manifest.get("stable_heading_map", {}) or {},
                 'stable_heading_map_raw': manifest.get("stable_heading_map_raw", "") or "",
                 'strip_docx_formatting': manifest.get("strip_docx_formatting", False),
+                'edit_tables': manifest.get("edit_tables", False),
                 'docx_links_by_para': docx_links_by_para,
             }
             # If edits file exists in bundle, seed approved_crosswalk from it

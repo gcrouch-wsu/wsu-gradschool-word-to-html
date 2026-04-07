@@ -100,7 +100,7 @@ Follow the on-screen prompts until you reach the **preview** with export actions
 ## Import & restore (home page)
 
 - **Session Bundle** — upload a previously exported `.zip` to restore that session’s state.
-- **WordPress HTML** — upload an exported `.html` file; you can attach an optional heading map JSON file.
+- **WordPress HTML** — upload an exported `.html` file; optional heading map JSON; optional **Open table review before export** (same behavior as DOCX upload when tables are present).
 
 ---
 
