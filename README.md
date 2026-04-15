@@ -2,9 +2,9 @@
 
 A Flask web application that converts Word documents (DOCX) into WordPress-ready HTML for publishing university policy manuals. Built for Washington State University's administrative manuals (Faculty Manual, GSPP, etc.).
 
-Current build and deployment status is tracked in `PROJECT_HANDOFF.md` (including **External re-audit checklist** for second-pass / Gemini reviews). This README describes the intended workflow and local usage, but it should not be treated as the release-readiness source of truth.
+This README describes the intended workflow and local usage. It is **not** a substitute for production security review, threat modeling, or formal release sign-off.
 
-For **implementation order**, locked scope, acceptance gates, and the phased build plan, follow **`PROJECT_HANDOFF.md`** — start with the section **How to use this document as a build guide**, then **Build Decisions For This Build** and **Build Plan**.
+Phased hardening, deployment checklists, and sequencing of fixes are tracked by maintainers **outside this repository** (private notes or your organization’s process), not in files shipped with this clone.
 
 ## Features
 
@@ -12,10 +12,10 @@ For **implementation order**, locked scope, acceptance gates, and the phased bui
 - **WordPress-ready output** — generates HTML fragments, CSS, and JS for WordPress deployment
 - **Permalink stability** — heading map JSON preserves anchor IDs across editing cycles, so WordPress URLs survive document revisions
 - **WCAG 2.1 AA accessible** — skip navigation, ARIA landmarks, table scope attributes, keyboard-navigable TOC; the accessible **manual grid shell** (skip link, `nav`, search, `main`) is built in **one place** — `core/html_processor.py` → **`build_manual_grid_block`** (server TOC in preview when applicable; downloads use an empty TOC placeholder filled by **`wordpress.js`**)
-- **Intended round-trip editing workflow** — exports a clean DOCX for the next Word editing cycle and supports heading-map-based permalink continuity, with current gaps tracked in `PROJECT_HANDOFF.md`
+- **Intended round-trip editing workflow** — exports a clean DOCX for the next Word editing cycle and supports heading-map-based permalink continuity; known limitations are handled through structured review steps in the app
 - **Searchable TOC** — JavaScript-powered table of contents with live search, scrollspy, and keyboard navigation
 - **Reference crosswalk** — converts legacy heading references (Roman numerals, letters) to numeric format
-- **Local-first runtime with a Railway/Docker deployment path** — see `PROJECT_HANDOFF.md` for production checklists, residual gaps, and CSRF/ZIP/session hardening status
+- **Local-first runtime with a Railway/Docker deployment path** — treat internet-facing deployment as a separate hardening exercise (secrets, CSRF, container `PORT`, ZIP/session limits); validate against your own checklist before going public
 
 ---
 
@@ -69,7 +69,7 @@ Opens automatically at http://127.0.0.1:5000. If the browser doesn't launch, nav
 python docx_config_generator.py
 ```
 
-This companion tool is local-only in the current project scope. See `README_config_generator.md` for usage details, and `PROJECT_HANDOFF.md` for deployment scope.
+This companion tool is local-only in the current project scope. See `README_config_generator.md` for usage details.
 
 ## Conversion Workflow
 
@@ -132,13 +132,13 @@ tests/                          Pytest suite (`python -m pytest tests/ -q`)
 
 ## Environment Variables
 
-For local development, the defaults below are usable. For any deployed environment, do not rely on default secrets; follow `PROJECT_HANDOFF.md` for the required production posture.
+For local development, the defaults below are usable. For any deployed environment, do not rely on default secrets; set a strong `FLASK_SECRET_KEY`, review session persistence and ZIP import limits in `config.py`, and apply your organization’s production checklist.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `PERSIST_DIR` | System temp directory | Root for session storage |
 | `FLASK_SECRET_KEY` | `dev-secret` for local dev only | Flask session signing key; must be overridden in production |
-| `SESSION_TTL_HOURS` | `48` | Stale session directories are pruned on a throttled schedule (see `PROJECT_HANDOFF.md`); set `0` to disable |
+| `SESSION_TTL_HOURS` | `48` | When greater than `0`, stale session directories are pruned on a throttled schedule in the main app; set `0` to disable |
 | `ZIP_MAX_UNCOMPRESSED_BYTES` / `ZIP_MAX_FILES` | Defaults in `config.py` | Caps bundle import before `extractall` |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 

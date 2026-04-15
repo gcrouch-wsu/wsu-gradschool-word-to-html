@@ -2,7 +2,7 @@
 
 This page explains how to use the **web application** to turn a Word manual (`.docx`) into HTML for WordPress and how to keep permalinks stable across edits.
 
-**Release engineering, security posture, and residual automation gaps** are documented in **`PROJECT_HANDOFF.md`** (authoritative). **`README.md`** covers local install, env vars, and tests. This file is **operator / editor** guidance.
+**Release engineering and security posture** for production are outside the scope of this file; follow your team’s internal runbooks. **`README.md`** covers local install, env vars, and tests. This file is **operator / editor** guidance.
 
 ---
 

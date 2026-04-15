@@ -2,7 +2,7 @@
 
 A standalone Flask application for analyzing DOCX files and generating JSON configuration manifests for use with the main Word-to-WordPress conversion application.
 
-**Deployment:** The main converter’s Railway scope and locked decisions are in **`PROJECT_HANDOFF.md`** — this companion app remains **local-only** for the current build unless that handoff is explicitly expanded.
+**Deployment:** The main converter’s deployment scope is a maintainer concern outside this README; this companion app remains **local-only** unless your team explicitly expands it.
 
 ## Purpose
 
