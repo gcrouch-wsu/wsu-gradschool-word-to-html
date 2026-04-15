@@ -22,9 +22,9 @@ This page explains how to use the **web application** to turn a Word manual (`.d
 
 ## Main workflow: first-time conversion
 
-1. On the home page, under **Upload DOCX Manual**, choose your `.docx` file.
+1. On the home page, under **1. Start from Word**, choose your `.docx` file.
 2. Set **Conversion options** (see [Options explained](#conversion-options) below).
-3. Click **Upload and Review**.
+3. Click **Continue with Word file**.
 4. Complete each review step the app presents (for example headings, references, and optionally **table review** if you enabled it).
 5. When you reach the final preview, click **Proceed with Conversion** (or the equivalent control on that screen).
 6. Use the download buttons to save the files you need (see [Downloads](#downloads-what-each-file-is-for)).
@@ -37,15 +37,12 @@ You do **not** need a heading map the first time. Save the **Heading Map** JSON 
 
 When you edit the manual in Word and want published URLs (`#section-anchors`) to stay the same for unchanged headings:
 
-1. Upload the **new** `.docx`.
-2. Expand **Advanced: Permalink Continuity (Heading Map)** on the upload form.
-3. Either:
-   - Use **Upload heading map JSON** and pick your previous `*.heading-map.json`, **or**
-   - Paste the JSON into **Or paste Signature-to-ID JSON**.
-4. If both file and paste are filled in, the **pasted text wins**.
-5. Leave **Keep heading numbers in text** **unchecked** unless you intentionally want numbers embedded in heading text (the site CSS usually adds numbering automatically). **When that option is on, numbers are part of the visible heading**, so they are part of the **permalink signature**—changing only a number in Word can change the anchor unless the heading map is updated.
-6. Run through review and convert again.
-7. Download a **new** heading map for the next cycle.
+1. Upload the **new** `.docx` on the home page (**1. Start from Word**).
+2. In the **same form**, use the shaded **Optional: heading map** box: pick your previous heading map file (the one you downloaded last time—often named like `*.heading-map.json`). You do **not** need a separate step; it goes with the Word file.
+3. Or paste the map text under **Prefer to paste the map instead of using a file?** If both a file and pasted text are filled in, the **pasted text wins**.
+4. Leave **Keep heading numbers in text** **unchecked** unless you intentionally want numbers embedded in heading text (the site CSS usually adds numbering automatically). **When that option is on, numbers are part of the visible heading**, so they are part of the **permalink signature**—changing only a number in Word can change the anchor unless the heading map is updated.
+5. Run through review and convert again.
+6. Download a **new** heading map for the next cycle.
 
 **Tip:** If the heading map does not seem to apply, use the file picker; relying on paste alone sometimes misses what you expect.
 
@@ -101,8 +98,8 @@ Follow the on-screen prompts until you reach the **preview** with export actions
 
 ## Import & restore (home page)
 
-- **Session Bundle** — upload a previously exported `.zip` to restore that session’s state.
-- **WordPress HTML** — upload an exported `.html` file; optional heading map JSON; optional **Open table review before export** (same behavior as DOCX upload when tables are present).
+- **2. Start from a saved web page (HTML)** — on the same home page as Word upload: use when you only have an exported `.html` file (not the Word document). You can attach an optional heading map file there too.
+- **Session bundle (.zip)** — farther down the page: restores a full saved **session** you exported earlier (not the same as starting from Word or HTML above).
 
 ---
 

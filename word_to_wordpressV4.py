@@ -738,6 +738,11 @@ HOME_PAGE = """
     .checkbox label { font-weight: normal; margin-bottom: 0; }
     .alert { padding: 15px; border-radius: 6px; margin-bottom: 20px; background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
     .section-title { font-size: 18px; font-weight: 600; margin-top: 30px; margin-bottom: 15px; color: #555; }
+    .path-title { font-size: 1.1rem; font-weight: 600; color: #444; margin: 0 0 8px 0; }
+    .path-lead { font-size: 14px; color: #555; line-height: 1.55; margin: 0 0 16px 0; }
+    .option-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 18px; margin: 16px 0; }
+    .option-box > p:first-child { margin-top: 0; }
+    .path-divider { border: none; border-top: 1px solid #e5e7eb; margin: 28px 0 24px 0; }
     details { margin-bottom: 15px; border: 1px solid #eee; border-radius: 4px; padding: 10px; }
     summary { font-weight: 600; cursor: pointer; }
     .preview-container { margin-top: 40px; border-top: 4px solid #8d0a0a; padding-top: 20px; }
@@ -786,15 +791,36 @@ HOME_PAGE = """
     {{ wordpress_js_tag|safe }}
   {% else %}
     <div class="card">
+      <h2 style="margin-top:0; font-size:1.35rem; color:#444;">Upload your manual</h2>
+      <p class="path-lead">You can upload your <strong>Word file</strong> and, in the <strong>same step</strong>, add an <strong>optional heading map file</strong> from a previous run so WordPress section links can stay pointed at the right place. Nothing here requires code—just file pickers and checkboxes.</p>
+
+      <p class="path-title">1. Start from Word (recommended)</p>
+      <p class="small" style="margin-top:-6px; margin-bottom:16px;">Choose your manual as a <strong>.docx</strong> file. If you used this tool before, use the second file picker in the shaded box to attach your heading map <strong>together with</strong> the Word file, then click the button at the bottom.</p>
+
       <form action="/convert" method="post" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
-          <label for="docx">Upload DOCX Manual:</label>
+          <label for="docx">Your Word document (.docx)</label>
           <input type="file" id="docx" name="docx" accept=".docx" required>
-          <p class="small">Standard Microsoft Word .docx file.</p>
+          <p class="small">The Word file you want to turn into web-ready HTML.</p>
         </div>
 
-        <div class="section-title">Conversion Options</div>
+        <div class="option-box">
+          <p class="small" style="margin-bottom:10px; font-weight:600; color:#334155;">Optional: heading map (use with the Word file above)</p>
+          <p class="small" style="margin-top:0;">If this is a <strong>repeat</strong> conversion, attach the small <strong>heading map</strong> file you downloaded last time (it keeps anchor IDs stable so existing links keep working). Skip this on a <strong>first-time</strong> run.</p>
+          <label for="stable_heading_map_file" style="margin-top:12px;">Heading map file</label>
+          <input id="stable_heading_map_file" name="stable_heading_map_file" type="file" accept=".json,application/json" style="margin-bottom:12px;">
+          <details style="margin-top:8px;">
+            <summary style="font-size:14px;">Prefer to paste the map instead of using a file?</summary>
+            <div style="padding:10px 0 0 0;">
+              <label for="stable_heading_map_raw">Paste heading map text</label>
+              <textarea id="stable_heading_map_raw" name="stable_heading_map_raw" rows="4" style="width:100%; font-family:monospace; font-size:12px;" placeholder="Only if someone sent you the map as text"></textarea>
+              <p class="small" style="margin-bottom:0;">If both a file and pasted text are filled in, the <strong>pasted text wins</strong>.</p>
+            </div>
+          </details>
+        </div>
+
+        <div class="section-title">Conversion options</div>
         
         <div class="checkbox">
           <input id="edit_tables" name="edit_tables" type="checkbox">
@@ -826,47 +852,53 @@ HOME_PAGE = """
           </select>
         </div>
 
-        <details>
-          <summary>Advanced: Permalink Continuity (Heading Map)</summary>
-          <div style="padding: 10px 0;">
-            <p class="small" style="margin-top:0;">Upload a previously exported <code>*.heading-map.json</code> file to reuse stable anchor IDs, or paste the JSON below. If both are provided, the pasted text wins.</p>
-            <label for="stable_heading_map_file">Upload heading map JSON:</label>
-            <input id="stable_heading_map_file" name="stable_heading_map_file" type="file" accept=".json,application/json" style="margin-bottom:12px;">
-            <label for="stable_heading_map_raw">Or paste Signature-to-ID JSON:</label>
-            <textarea id="stable_heading_map_raw" name="stable_heading_map_raw" rows="5" style="width:100%; font-family:monospace; font-size:12px;" placeholder='{"my heading": "fixed-id-1"}'></textarea>
-          </div>
-        </details>
-
         <div style="margin-top: 30px;">
-          <button type="submit">Upload and Review</button>
+          <button type="submit">Continue with Word file</button>
         </div>
+      </form>
+
+      <hr class="path-divider">
+
+      <p class="path-title">2. Start from a saved web page (HTML)</p>
+      <p class="path-lead">Use this path when you <strong>do not</strong> have the Word file—only an <strong>.html</strong> page you already exported (for example from WordPress or from this tool). It replaces starting from Word for that run: you will still get review steps and downloads afterward.</p>
+
+      <form action="/import_html" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+          <label for="html_file_main">Saved web page (.html or .htm)</label>
+          <input id="html_file_main" type="file" name="html_file" accept=".html,.htm" required>
+          <p class="small">The exported HTML file you want to bring back into the tool.</p>
+        </div>
+        <div class="option-box">
+          <p class="small" style="margin-bottom:10px; font-weight:600; color:#334155;">Optional: heading map with your HTML</p>
+          <p class="small" style="margin-top:0;">Same idea as with Word—if you have a heading map file from a past run, you can attach it here too.</p>
+          <label for="stable_heading_map_file_html">Heading map file</label>
+          <input id="stable_heading_map_file_html" type="file" name="stable_heading_map_file" accept=".json,application/json" style="margin-bottom:12px;">
+          <details style="margin-top:8px;">
+            <summary style="font-size:14px;">Prefer to paste the map instead of using a file?</summary>
+            <div style="padding:10px 0 0 0;">
+              <label for="stable_heading_map_raw_html">Paste heading map text</label>
+              <textarea id="stable_heading_map_raw_html" name="stable_heading_map_raw" rows="4" style="width:100%; font-family:monospace; font-size:12px;"></textarea>
+            </div>
+          </details>
+        </div>
+        <div class="checkbox" style="margin-bottom:12px;">
+          <input id="edit_tables_html" name="edit_tables" type="checkbox">
+          <label for="edit_tables_html">Open table review before export (if tables are detected)</label>
+        </div>
+        <button type="submit" style="padding: 12px 24px; font-size: 16px;">Continue with HTML file</button>
       </form>
     </div>
 
     <div class="section-title">Import & Restore</div>
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-      <div class="card">
-        <h3 style="margin-top:0">Session Bundle</h3>
-        <form action="/import_bundle" method="post" enctype="multipart/form-data">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="file" name="bundle" accept=".zip" required style="margin-bottom:10px">
-          <button type="submit" style="padding: 8px 16px; font-size:14px">Restore Session</button>
-        </form>
-      </div>
-      <div class="card">
-        <h3 style="margin-top:0">WordPress HTML</h3>
-        <form action="/import_html" method="post" enctype="multipart/form-data">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="file" name="html_file" accept=".html,.htm" required style="margin-bottom:10px">
-          <label for="stable_heading_map_file_html" style="font-size:13px;">Heading map JSON (optional):</label>
-          <input id="stable_heading_map_file_html" type="file" name="stable_heading_map_file" accept=".json,application/json" style="margin-bottom:10px">
-          <div class="checkbox" style="margin-bottom:12px;">
-            <input id="edit_tables_html" name="edit_tables" type="checkbox">
-            <label for="edit_tables_html">Open table review before export (if tables are detected)</label>
-          </div>
-          <button type="submit" style="padding: 8px 16px; font-size:14px">Import HTML</button>
-        </form>
-      </div>
+    <div class="card" style="max-width:720px;">
+      <h3 style="margin-top:0">Session bundle (.zip)</h3>
+      <p class="small">Restore a full saved session you exported earlier—not the same as “start from Word” or “start from HTML” above.</p>
+      <form action="/import_bundle" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="file" name="bundle" accept=".zip" required style="margin-bottom:10px">
+        <button type="submit" style="padding: 8px 16px; font-size:14px">Restore session</button>
+      </form>
     </div>
   {% endif %}
 </body>
