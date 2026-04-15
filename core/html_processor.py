@@ -19,6 +19,13 @@ try:
 except ImportError:
     _HTML_PARSER = 'html.parser'
 
+try:
+    import bleach
+except ImportError:  # pragma: no cover
+    bleach = None  # type: ignore
+
+from utils.url_policy import is_safe_href, sanitize_external_href
+
 # --- Constants & Helpers from word_to_wordpressV4.py ---
 
 _WHITESPACE_EQUIV = {
@@ -35,6 +42,72 @@ def _norm_char(c: str) -> str:
 
 def _normalized(s: str) -> str:
     return ''.join(_norm_char(c) for c in s)
+
+
+def find_manual_container(soup: BeautifulSoup) -> Tag | None:
+    """Return div.manual, main.manual (exporter grid), or body."""
+    if soup is None:
+        return None
+    for finder in (
+        lambda s: s.find('div', class_='manual'),
+        lambda s: s.find('main', class_='manual'),
+    ):
+        el = finder(soup)
+        if el is not None:
+            return el
+    return soup.find('body')
+
+
+# Allowlist for policy-manual HTML (import + post-pipeline hardening)
+_BLEACH_TAGS = frozenset({
+    'a', 'abbr', 'article', 'aside', 'b', 'blockquote', 'br', 'caption', 'cite', 'code', 'col', 'colgroup',
+    'dd', 'div', 'dl', 'dt', 'em', 'figcaption', 'figure', 'footer', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'header', 'hr', 'i', 'img', 'li', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'small', 'span', 'strong',
+    'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'u', 'ul',
+})
+_BLEACH_ATTRS = {
+    '*': [
+        'class', 'id', 'style', 'role', 'aria-label', 'aria-labelledby', 'aria-describedby',
+        'aria-live', 'tabindex', 'colspan', 'rowspan', 'scope', 'headers', 'lang', 'title',
+    ],
+    'a': ['href', 'name', 'target', 'rel', 'class', 'id', 'title'],
+    'img': ['src', 'alt', 'width', 'height', 'loading', 'class', 'decoding', 'title'],
+    'th': ['abbr', 'scope', 'colspan', 'rowspan', 'headers', 'class', 'id'],
+    'td': ['colspan', 'rowspan', 'headers', 'class', 'id'],
+    'ol': ['type', 'start', 'class', 'id', 'data-list-style'],
+    'ul': ['class', 'id'],
+    'li': ['class', 'id', 'value'],
+    'input': ['type', 'class', 'placeholder', 'aria-label', 'aria-describedby', 'role', 'disabled', 'readonly'],
+    'button': ['type', 'class', 'aria-label', 'disabled'],
+}
+
+
+def sanitize_manual_html_fragment(html: str) -> str:
+    """
+    Allowlisted HTML cleanup: strips scripts, event-handler attributes, and unsafe URL schemes.
+    Used after import and on final body fragments before preview/export where applicable.
+    """
+    if not html or not html.strip():
+        return html or ''
+    if bleach is None:
+        soup = BeautifulSoup(html, _HTML_PARSER)
+        for tag in soup.find_all(['script', 'style']):
+            tag.decompose()
+        for link in soup.find_all('link'):
+            rel = link.get('rel') or []
+            if not isinstance(rel, list):
+                rel = [str(rel)]
+            if 'stylesheet' in [r.lower() for r in rel]:
+                link.decompose()
+        return str(soup)
+    return bleach.clean(
+        html,
+        tags=sorted(_BLEACH_TAGS),
+        attributes=_BLEACH_ATTRS,
+        protocols=['http', 'https', 'mailto'],
+        strip=True,
+    )
+
 
 _HEADING_PREFIX_RE = re.compile(
     r"^\s*(?:"
@@ -284,14 +357,17 @@ def save_stable_heading_map(session_id: str, final_html: str) -> None:
     logger.info("Saved stable heading map: %d entries", len(heading_map))
 
 def strip_html_assets(html: str) -> str:
+    """Remove head assets and apply allowlisted sanitization (event handlers, unsafe URLs)."""
     soup = BeautifulSoup(html, _HTML_PARSER)
     for tag in soup.find_all(['script', 'style']):
         tag.decompose()
     for link in soup.find_all('link'):
         rel = link.get('rel') or []
-        if not isinstance(rel, list): rel = [str(rel)]
-        if 'stylesheet' in [r.lower() for r in rel]: link.decompose()
-    return str(soup)
+        if not isinstance(rel, list):
+            rel = [str(rel)]
+        if 'stylesheet' in [r.lower() for r in rel]:
+            link.decompose()
+    return sanitize_manual_html_fragment(str(soup))
 
 def shift_heading_levels(html: str, offset: int) -> str:
     if not offset: return html
@@ -314,7 +390,7 @@ def extract_manual_fragment(html: str) -> tuple[str, dict]:
     grid = soup.find('div', class_='manual-grid')
     meta = {}
     if grid:
-        manual = grid.find('div', class_='manual')
+        manual = grid.find('div', class_='manual') or grid.find('main', class_='manual')
         meta = {
             'manual_type': grid.get('data-manual-type'),
             'toc_depth': grid.get('data-toc-depth'),
@@ -323,8 +399,10 @@ def extract_manual_fragment(html: str) -> tuple[str, dict]:
             'theme_id': grid.get('data-theme')
         }
     else:
-        manual = soup.find('div', class_='manual') or soup.find('body') or soup
-    
+        manual = find_manual_container(soup) or soup
+
+    if manual is None:
+        return '', meta
     if not meta.get('manual_type'):
         meta['manual_type'] = _infer_manual_type_from_html(BeautifulSoup(str(manual), _HTML_PARSER))
     return str(manual), meta
@@ -579,7 +657,7 @@ def strip_toc_sections_dom(soup_or_html):
     _strip_toc_sections_dom_impl(soup_or_html)
 
 def _strip_toc_sections_dom_impl(soup: BeautifulSoup) -> None:
-    container = soup.find('div', class_='manual') or soup
+    container = find_manual_container(soup) or soup
     for heading in soup.find_all(re.compile(r'^h[1-6]$')):
         if re.search(r'Table of Contents', heading.get_text(), re.IGNORECASE):
             nxt = heading.find_next_sibling()
@@ -686,7 +764,7 @@ def normalize_typed_lists(soup_or_html):
     _normalize_typed_lists_impl(soup_or_html)
 
 def _normalize_typed_lists_impl(soup: BeautifulSoup) -> None:
-    container = soup.find('div', class_='manual') or soup
+    container = find_manual_container(soup) or soup
     children = list(container.children); i = 0; new_nodes = []
     def run(s_idx):
         m0 = _roman.match(children[s_idx].get_text()) or _alpha.match(children[s_idx].get_text()) or _decimal.match(children[s_idx].get_text())
@@ -709,6 +787,133 @@ def _normalize_typed_lists_impl(soup: BeautifulSoup) -> None:
         else: new_nodes.append(n); i += 1
     container.clear()
     for n in new_nodes: container.append(n)
+
+def _ordered_text_nodes(paragraph: Tag) -> list[NavigableString]:
+    out: list[NavigableString] = []
+    for n in paragraph.descendants:
+        if not isinstance(n, NavigableString):
+            continue
+        if n.parent and getattr(n.parent, "name", None) in ("script", "style"):
+            continue
+        out.append(n)
+    return out
+
+
+def _replace_reference_first_occurrence(
+    paragraph: Tag,
+    old_t: str,
+    new_t: str,
+    anchor: str,
+    url: str,
+    soup: BeautifulSoup,
+    skip_linked_text: bool,
+) -> bool:
+    """Legacy first-match replacement (fallback)."""
+
+    def rep(n, t, r, a, u):
+        if isinstance(n, NavigableString):
+            if t in n:
+                idx = n.find(t)
+                b, af = n[:idx], n[idx + len(t) :]
+                nodes = [NavigableString(b)]
+                safe_u = sanitize_external_href(u) if u else ""
+                if safe_u or a:
+                    tag = soup.new_tag("a", href=safe_u or f"#{a}")
+                    if safe_u:
+                        tag["target"] = "_blank"
+                        tag["rel"] = "noopener noreferrer"
+                        tag["class"] = "external-link"
+                    tag.string = r
+                    nodes.append(tag)
+                else:
+                    nodes.append(NavigableString(r))
+                nodes.append(NavigableString(af))
+                return nodes, True
+            return [n], False
+        if isinstance(n, Tag):
+            if n.name == "a" and skip_linked_text:
+                return [n], False
+            con = []
+            for c in list(n.children):
+                ns, ok = rep(c, t, r, a, u)
+                con.extend(ns)
+                if ok:
+                    break
+            else:
+                return [n], False
+            n.clear()
+            for c in con:
+                n.append(c)
+            return [n], True
+        return [n], False
+
+    rep(paragraph, old_t, new_t, anchor, url)
+    return True
+
+
+def _replace_reference_at_offset(
+    paragraph: Tag,
+    old_t: str,
+    new_t: str,
+    anchor: str,
+    url: str,
+    soup: BeautifulSoup,
+    start_offset: int,
+    skip_linked_text: bool,
+) -> bool:
+    """Replace old_t in paragraph at character offset (matches DOCX/HTML ref extraction)."""
+    flat = paragraph.get_text(separator="", strip=False)
+    if (
+        start_offset < 0
+        or start_offset + len(old_t) > len(flat)
+        or flat[start_offset : start_offset + len(old_t)] != old_t
+    ):
+        return _replace_reference_first_occurrence(
+            paragraph, old_t, new_t, anchor, url, soup, skip_linked_text
+        )
+    cum = 0
+    for node in _ordered_text_nodes(paragraph):
+        seg = str(node)
+        L = len(seg)
+        if cum + L <= start_offset:
+            cum += L
+            continue
+        local = start_offset - cum
+        if seg[local : local + len(old_t)] != old_t:
+            return _replace_reference_first_occurrence(
+                paragraph, old_t, new_t, anchor, url, soup, skip_linked_text
+            )
+        before, after = seg[:local], seg[local + len(old_t) :]
+        safe_u = sanitize_external_href(url) if url else ""
+        new_fragments: list = [NavigableString(before)]
+        if safe_u:
+            tag = soup.new_tag(
+                "a",
+                href=safe_u,
+                target="_blank",
+                rel="noopener noreferrer",
+                **{"class": "external-link"},
+            )
+            tag.string = new_t
+            new_fragments.append(tag)
+        elif anchor:
+            tag = soup.new_tag("a", href=f"#{anchor}")
+            tag.string = new_t
+            new_fragments.append(tag)
+        else:
+            new_fragments.append(NavigableString(new_t))
+        new_fragments.append(NavigableString(after))
+        first, *rest = new_fragments
+        node.replace_with(first)
+        ref = first
+        for piece in rest:
+            ref.insert_after(piece)
+            ref = piece
+        return True
+    return _replace_reference_first_occurrence(
+        paragraph, old_t, new_t, anchor, url, soup, skip_linked_text
+    )
+
 
 def apply_reference_edits(soup_or_html, edits: dict, references: list, validations: dict = None, link_targets: dict = None, auto_crosswalk: dict = None, new_headings: dict = None, reference_ignored: dict = None, reference_external_urls: dict = None, skip_linked_text: bool = False, rebuild_links: bool = False):
     if isinstance(soup_or_html, str):
@@ -738,35 +943,17 @@ def _apply_reference_edits_impl(soup: BeautifulSoup, edits: dict, references: li
         if not disp: disp = old
         url = reference_external_urls.get(rid, '').strip() if reference_external_urls else ''
         ref_map.setdefault(para, []).append({'old': old, 'new': disp, 'anchor': aid, 'url': url, 'start': start})
-    paragraphs = [p for p in (soup.find('div', class_='manual') or soup).find_all('p') if not p.find_parent('table')]
+    manual_root = find_manual_container(soup) or soup
+    paragraphs = [p for p in manual_root.find_all('p') if not p.find_parent('table')]
     for p_idx, ents in ref_map.items():
-        if p_idx >= len(paragraphs): continue
+        if p_idx >= len(paragraphs):
+            continue
         p = paragraphs[p_idx]
         for ent in sorted(ents, key=lambda x: x['start'], reverse=True):
             old_t, new_t, aid, url = ent['old'], ent['new'], ent['anchor'], ent['url']
-            def rep(n, t, r, a, u):
-                if isinstance(n, NavigableString):
-                    if t in n:
-                        idx = n.find(t); b, af = n[:idx], n[idx+len(t):]; nodes = [NavigableString(b)]
-                        if u or a:
-                            tag = soup.new_tag('a', href=u or f"#{a}")
-                            if u: tag['target'] = "_blank"; tag['class'] = "external-link"
-                            tag.string = r; nodes.append(tag)
-                        else: nodes.append(NavigableString(r))
-                        nodes.append(NavigableString(af)); return nodes, True
-                    return [n], False
-                if isinstance(n, Tag):
-                    if n.name == 'a' and skip_linked_text: return [n], False
-                    con = []
-                    for c in list(n.children):
-                        ns, ok = rep(c, t, r, a, u); con.extend(ns)
-                        if ok: break
-                    else: return [n], False
-                    n.clear()
-                    for c in con: n.append(c)
-                    return [n], True
-                return [n], False
-            rep(p, old_t, new_t, aid, url)
+            _replace_reference_at_offset(
+                p, old_t, new_t, aid, url, soup, ent['start'], skip_linked_text
+            )
 
 def apply_css_counter_numbering(soup_or_html, manual_type: str = 'chapter', preserve: bool = False):
     if isinstance(soup_or_html, str):
@@ -821,7 +1008,9 @@ def process_html_pipeline(html_content: str, session_id: str, config: dict) -> t
     )
     if config.get('references'):
         _apply_reference_edits_impl(soup, config.get('reference_edits', {}), config.get('references', []), config.get('reference_validations', {}), config.get('reference_link_targets', {}), auto_crosswalk=config.get('auto_crosswalk', {}), new_headings=config.get('new_headings', {}), reference_ignored=config.get('reference_ignored', {}), reference_external_urls=config.get('reference_external_urls', {}), skip_linked_text=config.get('skip_linked_text', False), rebuild_links=config.get('rebuild_links', False))
-    return str(soup), generate_server_side_toc(soup, config.get('toc_depth', 2))
+    body_html = str(soup)
+    toc_html = generate_server_side_toc(soup, config.get('toc_depth', 2))
+    return sanitize_manual_html_fragment(body_html), sanitize_manual_html_fragment(toc_html)
 
 def has_tables_in_html(html_path) -> bool:
     """Return True if the HTML file at html_path contains at least one <table> element."""
@@ -884,12 +1073,31 @@ def parse_heading_id_map_json(raw_text: str) -> dict:
     return heading_map
 
 
-def build_manual_grid_block(body_html: str, toc_depth: int, manual_type: str, numbering_mode: str, heading_offset: int = 0, theme_id: str = "manual") -> str:
-    """Assemble the full manual grid HTML block with accessible TOC and search."""
+def build_manual_grid_block(
+    body_html: str,
+    toc_depth: int,
+    manual_type: str,
+    numbering_mode: str,
+    heading_offset: int = 0,
+    theme_id: str = "manual",
+    *,
+    toc_html: str | None = None,
+) -> str:
+    """Assemble the full manual grid HTML block with accessible TOC and search.
+
+    If ``toc_html`` is set (server-rendered list from ``generate_server_side_toc``),
+    it is injected inside ``<nav>``; otherwise an empty ``<ul>`` is emitted for
+    client-side TOC population (``wordpress.js``).
+    """
     body_html = format_manual_tables(body_html)
 
     offset_attr = f' data-heading-offset="{heading_offset}"' if heading_offset else ""
     theme_attr = f' data-theme="{sanitize_theme_id(theme_id, "manual")}"'
+    toc_block = (
+        f"    {toc_html.strip()}\n"
+        if (toc_html and toc_html.strip())
+        else '    <ul aria-labelledby="toc-heading" aria-live="polite"></ul>\n'
+    )
     return (
         '<!-- ACCESSIBILITY: Skip navigation link for keyboard users (WCAG 2.4.1) -->\n'
         '<a href="#main-content" class="skip-to-main">Skip to main content</a>\n'
@@ -901,7 +1109,7 @@ def build_manual_grid_block(body_html: str, toc_depth: int, manual_type: str, nu
             '      <button type="button" class="manual-search-clear" aria-label="Clear search">X</button>\n'
             '    </div>\n'
             '    <span id="search-help" class="sr-only">Type to filter headings and content</span>\n'
-            '    <ul aria-labelledby="toc-heading" aria-live="polite"></ul>\n'
+            f"{toc_block}"
             '  </nav>\n'
             f'  <main class="manual" id="main-content" role="main" tabindex="-1">\n'
             f'    {body_html}\n'

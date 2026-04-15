@@ -2,6 +2,8 @@
 
 A standalone Flask application for analyzing DOCX files and generating JSON configuration manifests for use with the main Word-to-WordPress conversion application.
 
+**Deployment:** The main converter’s Railway scope and locked decisions are in **`PROJECT_HANDOFF.md`** — this companion app remains **local-only** for the current build unless that handoff is explicitly expanded.
+
 ## Purpose
 
 This tool allows you to:
@@ -19,9 +21,13 @@ This tool allows you to:
 
 ## Installation
 
-This app requires the same dependencies as the main application:
-- Flask
-- python-docx
+For parity with the main app (and fewer version surprises), install from the repo root:
+
+```bash
+pip install -r requirements.txt
+```
+
+Minimal run (if you only need this tool in isolation):
 
 ```bash
 pip install flask python-docx

@@ -6,7 +6,5 @@ __pycache__/
 *.docx
 *.heading-map.json
 archive/
-tests/
 static/
 templates/
-PROJECT_HANDOFF.md

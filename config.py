@@ -8,6 +8,10 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "dev-secret")
 SESSION_TTL_HOURS = int(os.environ.get("SESSION_TTL_HOURS", "48"))
 
+# Bundle / ZIP import limits (uncompressed totals; defense-in-depth)
+ZIP_MAX_UNCOMPRESSED_BYTES = int(os.environ.get("ZIP_MAX_UNCOMPRESSED_BYTES", str(200 * 1024 * 1024)))
+ZIP_MAX_FILES = int(os.environ.get("ZIP_MAX_FILES", "5000"))
+
 # --- Path Configuration ---
 # All paths resolve under a single PERSIST_DIR
 PERSIST_DIR = Path(os.environ.get("PERSIST_DIR", tempfile.gettempdir())) / "docx2html_wsumanual"

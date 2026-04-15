@@ -7,18 +7,12 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Install Python dependencies
-RUN pip install --no-cache-dir \
-    flask~=3.0 \
-    python-docx~=1.1 \
-    beautifulsoup4~=4.12 \
-    lxml~=5.1 \
-    werkzeug~=3.0 \
-    markdown~=3.6 \
-    gunicorn~=22.0
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application
 COPY . .
 
+ENV PORT=8080
 EXPOSE 8080
-CMD ["gunicorn", "word_to_wordpressV4:app", "--bind", "0.0.0.0:8080"]
+
+CMD ["/bin/sh", "-c", "exec gunicorn word_to_wordpressV4:app --bind 0.0.0.0:${PORT}"]

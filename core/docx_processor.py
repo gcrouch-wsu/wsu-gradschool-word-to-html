@@ -886,7 +886,7 @@ def extract_heading_structure_and_references(doc: Document) -> tuple[dict, list]
 # --- Hyperlinks & Tables ---
 
 def is_bad_docx_link(href: str) -> bool:
-    """Identify broken or local file links in DOCX."""
+    """Identify broken, local, or unsafe links in DOCX (only http(s), mailto, and # anchors allowed)."""
     if not href:
         return True
     value = href.strip()
@@ -895,7 +895,15 @@ def is_bad_docx_link(href: str) -> bool:
         return True
     if re.match(r'^[a-zA-Z]:\\\\', value) or re.match(r'^[a-zA-Z]:/', value) or value.startswith("\\\\"):
         return True
-    return False
+    if lower.startswith("#"):
+        return False
+    if lower.startswith("mailto:"):
+        return "@" not in value[7:80]
+    if lower.startswith("http://") or lower.startswith("https://"):
+        return False
+    if lower.startswith(("javascript:", "vbscript:", "data:")):
+        return True
+    return True
 
 def extract_docx_hyperlinks(doc: Document) -> dict:
     """Extract all hyperlinks from a DOCX file, mapped by paragraph index."""

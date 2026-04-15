@@ -2,6 +2,8 @@
 
 This page explains how to use the **web application** to turn a Word manual (`.docx`) into HTML for WordPress and how to keep permalinks stable across edits.
 
+**Release engineering, security posture, and residual automation gaps** are documented in **`PROJECT_HANDOFF.md`** (authoritative). **`README.md`** covers local install, env vars, and tests. This file is **operator / editor** guidance.
+
 ---
 
 ## Who this is for
@@ -41,7 +43,7 @@ When you edit the manual in Word and want published URLs (`#section-anchors`) to
    - Use **Upload heading map JSON** and pick your previous `*.heading-map.json`, **or**
    - Paste the JSON into **Or paste Signature-to-ID JSON**.
 4. If both file and paste are filled in, the **pasted text wins**.
-5. Leave **Keep heading numbers in text** **unchecked** unless you intentionally want numbers embedded in heading text (the site CSS usually adds numbering automatically).
+5. Leave **Keep heading numbers in text** **unchecked** unless you intentionally want numbers embedded in heading text (the site CSS usually adds numbering automatically). **When that option is on, numbers are part of the visible heading**, so they are part of the **permalink signature**—changing only a number in Word can change the anchor unless the heading map is updated.
 6. Run through review and convert again.
 7. Download a **new** heading map for the next cycle.
 
@@ -121,7 +123,7 @@ Follow the on-screen prompts until you reach the **preview** with export actions
 
 ### Heading map and permalinks
 
-The heading map records a stable ID for each heading **signature** (normalized heading text). When you re-convert with the same map, unchanged headings keep the same IDs, so existing WordPress URLs with `#anchors` keep working.
+The heading map records a stable ID for each heading **signature** (normalized heading text—exact match after normalization, not “fuzzy” similarity). When you re-convert with the same map, headings whose normalized text still matches keep the same IDs, so existing WordPress URLs with `#anchors` keep working.
 
 ### Hybrid rule for IDs
 
@@ -142,11 +144,11 @@ The tool can map old-style references to numeric form, for example:
 
 To run the Flask app on your machine:
 
-1. Install **Python 3.10+** and **Pandoc**.
-2. Install Python packages (including the Markdown library used by the in-app **Instructions** page):
+1. Install **Python 3.12+** (recommended; matches Docker and typical `lxml` wheels) and **Pandoc**.
+2. Install Python packages from the repo root (includes Flask-WTF, Bleach, Markdown, pytest, etc.):
 
    ```bash
-   pip install flask~=3.0 python-docx~=1.1 beautifulsoup4~=4.12 lxml~=5.1 werkzeug~=3.0 markdown~=3.6
+   pip install -r requirements.txt
    ```
 
 3. Start the app:

@@ -36,12 +36,15 @@ import hashlib
 import zipfile
 import shutil
 import io
+import html
+import time
 import xml.etree.ElementTree as ET
 import logging
 from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, request, render_template, render_template_string, send_file, redirect, url_for, flash, jsonify
+from flask_wtf.csrf import CSRFProtect, generate_csrf
 import markdown
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -54,7 +57,16 @@ from docx.oxml import OxmlElement
 from bs4 import BeautifulSoup, Tag, NavigableString
 
 # Load local configuration and session helper
-from config import LOG_LEVEL, FLASK_SECRET_KEY, PERSIST_DIR, REFERENCE_DIR, SessionDir
+from config import (
+    LOG_LEVEL,
+    FLASK_SECRET_KEY,
+    PERSIST_DIR,
+    REFERENCE_DIR,
+    SessionDir,
+    SESSION_TTL_HOURS,
+    ZIP_MAX_UNCOMPRESSED_BYTES,
+    ZIP_MAX_FILES,
+)
 from core.permalinks import (
     normalize_heading_signature,
     normalize_heading_ref,
@@ -86,6 +98,7 @@ from core.html_processor import (
     extract_manual_fragment,
     parse_heading_id_map_json,
     build_manual_grid_block,
+    sanitize_manual_html_fragment,
 )
 from core.pandoc_wrapper import run_pandoc
 from core.docx_processor import (
@@ -154,7 +167,6 @@ from utils.helpers import (
     roman_to_int,
     normalize_hex_color,
     clamp_number,
-    sanitize_theme_id,
     _int_to_roman,
     _int_to_letters,
     _format_number,
@@ -175,11 +187,65 @@ app.secret_key = FLASK_SECRET_KEY
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024
 app.config["MAX_FORM_MEMORY_SIZE"] = 200 * 1024 * 1024
 app.config["MAX_FORM_PARTS"] = 20000
+app.config.setdefault("WTF_CSRF_TIME_LIMIT", None)
+
+csrf = CSRFProtect(app)
+
+_last_prune_ts = 0.0
+
+
+def _prune_stale_sessions_if_due() -> None:
+    """Remove session directories older than SESSION_TTL_HOURS (throttled)."""
+    global _last_prune_ts
+    if SESSION_TTL_HOURS <= 0:
+        return
+    now = time.time()
+    if now - _last_prune_ts < 1800:
+        return
+    _last_prune_ts = now
+    cutoff = now - SESSION_TTL_HOURS * 3600
+    try:
+        for child in list(PERSIST_DIR.iterdir()):
+            if not child.is_dir():
+                continue
+            try:
+                if child.stat().st_mtime < cutoff:
+                    shutil.rmtree(child, ignore_errors=True)
+            except OSError:
+                continue
+    except OSError:
+        logger.exception("Session prune scan failed")
+
+
+@app.before_request
+def _run_session_prune_before_request():
+    try:
+        _prune_stale_sessions_if_due()
+    except Exception:
+        logger.exception("Session prune hook failed")
+
 
 @app.errorhandler(RequestEntityTooLarge)
 def handle_request_too_large(error):
     flash("Request too large. Use a smaller file or increase the upload/form limits.")
     return redirect(url_for("index"))
+
+
+def _zip_archive_within_limits(zf: zipfile.ZipFile) -> tuple[bool, str]:
+    """Reject archives that exceed configured uncompressed size or file count."""
+    total = 0
+    count = 0
+    for info in zf.infolist():
+        if info.filename.endswith("/"):
+            continue
+        count += 1
+        if count > ZIP_MAX_FILES:
+            return False, f"ZIP contains too many files (limit {ZIP_MAX_FILES})."
+        total += int(info.file_size or 0)
+        if total > ZIP_MAX_UNCOMPRESSED_BYTES:
+            return False, "ZIP uncompressed size exceeds the configured limit."
+    return True, ""
+
 
 # Print persist directory location on startup for debugging
 import atexit
@@ -203,12 +269,12 @@ def print_persist_dir():
 _HEADING_PREFIX_RE = re.compile(
     r"^\s*(?:"
     # Section/Chapter with multi-level numbering: Section I.1 | Section I.A.2 | Chapter 1.2.3
-    r"(?i:(?:Chapter|Section))\s+[IVXLCDM\d]+(?:\.[A-Z\d]+)*(?:\s*[:.\---])?\s+|"
-    r"(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})(?:[.\s]+(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})){1,5}\.?\s+(?:[:.\---]\s*)?|"
-    r"(?i:[IVXLCDM]+)\.(?:[A-Z]{1,3}|[a-z]{1,3})(?:\.\d+){0,3}\.?\s+(?:[:.\---]\s*)?|"  # I.A. | I.AA.2. | I.A.2.1. : (requires space after)
-    r"(?i:[IVXLCDM]+)(?:\.\d+){0,3}\.?\s+(?:[:.\---]\s*)?|"         # II.3. | IV.2.1. (requires space after)
-    r"(?:[A-Z]{1,3}|[a-z]{1,3})\.\s+(?:[:.\---]\s*)?|"                          # A. or AA. (requires space after)
-    r"\d+(?:\.\d+){0,3}(?:[.)])?\s+(?:[:.\---]\s*)?"          # 1. | 1.2 | 1.2.3 (requires space after)
+    r"(?i:(?:Chapter|Section))\s+[IVXLCDM\d]+(?:\.[A-Z\d]+)*(?:\s*[:\.\u2013\u2014\-])?\s+|"
+    r"(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})(?:[.\s]+(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})){1,5}\.?\s+(?:[:\.\u2013\u2014\-]\s*)?|"
+    r"(?i:[IVXLCDM]+)\.(?:[A-Z]{1,3}|[a-z]{1,3})(?:\.\d+){0,3}\.?\s+(?:[:\.\u2013\u2014\-]\s*)?|"  # I.A. | I.AA.2. | I.A.2.1. : (requires space after)
+    r"(?i:[IVXLCDM]+)(?:\.\d+){0,3}\.?\s+(?:[:\.\u2013\u2014\-]\s*)?|"         # II.3. | IV.2.1. (requires space after)
+    r"(?:[A-Z]{1,3}|[a-z]{1,3})\.\s+(?:[:\.\u2013\u2014\-]\s*)?|"                          # A. or AA. (requires space after)
+    r"\d+(?:\.\d+){0,3}(?:[.)])?\s+(?:[:\.\u2013\u2014\-]\s*)?"          # 1. | 1.2 | 1.2.3 (requires space after)
     r")"
 )
 
@@ -294,89 +360,36 @@ def heading_review(session_id):
     if session_data.get('mapping_mode', 'map_new') == 'keep_old':
         return redirect(url_for('review', session_id=session_id))
 
-    # Auto-load heading_map.xlsx/csv from project root ONLY if no heading_map was extracted from DOCX
-    # This prevents external files from overriding the extracted heading structure
-    if not approved_crosswalk and not heading_map:
-        for candidate in ["heading_map.xlsx", "heading_map.csv"]:
-            file_path = Path(candidate)
-            if file_path.exists():
-                try:
-                    with open(file_path, "rb") as fh:
-                        class DummyFile:
-                            def __init__(self, name, data):
-                                self.filename = name
-                                self._data = data
-                                self.stream = io.BytesIO(data)
-                            def read(self):
-                                return self._data
-                        dummy = DummyFile(file_path.name, fh.read())
-                        loaded_map, _ = load_heading_map_file(dummy)
-                        if loaded_map:
-                            normalized_map = {}
-                            tmp_order = {}
-                            for idx, (old_ref, new_ref) in enumerate(loaded_map.items()):
-                                norm_old = ensure_prefixed(normalize_heading_ref(old_ref), manual_type)
-                                norm_new = ensure_prefixed(normalize_heading_ref(new_ref), manual_type)
-                                if norm_old and norm_new:
-                                    normalized_map[norm_old] = norm_new
-                                    tmp_order[norm_old] = idx
-                            approved_crosswalk = normalized_map
-                            if tmp_order:
-                                heading_order = tmp_order
-                            session_data['approved_crosswalk'] = approved_crosswalk
-                            if heading_order:
-                                session_data['heading_order'] = heading_order
-                            session_file.write_text(json.dumps(session_data, indent=2), encoding='utf-8')
-                            flash(f"Loaded heading map from {file_path.name}.")
-                            logger.debug(f"DEBUG [heading_review]: Auto-loaded {len(normalized_map)} entries from {file_path.name}")
-                except Exception as e:
-                    logger.error(f"DEBUG [heading_review]: Failed to auto-load heading map {file_path}: {e}")
-
     if request.method == 'POST':
-        # Optional heading map upload
-        uploaded_map = request.files.get('heading_map')
         updated = {}
-        if uploaded_map and uploaded_map.filename:
-            uploaded_mapping, _ = load_heading_map_file(uploaded_map)
-            for idx, (old_ref, new_ref) in enumerate(uploaded_mapping.items()):
-                norm_old = ensure_prefixed(normalize_heading_ref(old_ref), manual_type)
-                norm_new = ensure_prefixed(normalize_heading_ref(new_ref), manual_type)
-                if norm_old and norm_new:
-                    updated[norm_old] = norm_new
-                    heading_order[norm_old] = idx
-        else:
-            # Collect edits from form inputs with validation checkboxes
-            # First, identify all heading IDs
-            heading_ids = set()
-            for key in request.form.keys():
-                if key.startswith("valid_"):
-                    heading_ids.add(key.replace("valid_", ""))
+        heading_ids = set()
+        for key in request.form.keys():
+            if key.startswith("valid_"):
+                heading_ids.add(key.replace("valid_", ""))
 
-            # Now process each heading
-            updated_titles = {}  # Track edited NEW titles {new_ref: title}
+        updated_titles = {}
 
-            for heading_id in heading_ids:
-                # Check if this heading is marked as valid (checkbox checked)
-                is_valid = f'valid_{heading_id}' in request.form
+        for heading_id in heading_ids:
+            is_valid = f'valid_{heading_id}' in request.form
 
-                if is_valid:
-                    # Get the original old_ref, edited new_ref, and edited new_title
-                    old_ref_raw = request.form.get(f'old_ref_{heading_id}', '').strip()
-                    new_ref_raw = request.form.get(f'new_ref_{heading_id}', '').strip()
-                    new_title_raw = request.form.get(f'new_title_{heading_id}', '').strip()
+            if is_valid:
+                old_ref_raw = request.form.get(f'old_ref_{heading_id}', '').strip()
+                new_ref_raw = request.form.get(f'new_ref_{heading_id}', '').strip()
+                new_title_raw = request.form.get(f'new_title_{heading_id}', '').strip()
 
-                    if old_ref_raw and new_ref_raw:
-                        old_ref = ensure_prefixed(normalize_heading_ref(old_ref_raw), manual_type)
-                        new_ref = ensure_prefixed(normalize_heading_ref(new_ref_raw), manual_type)
-                        if old_ref and new_ref:
-                            updated[old_ref] = new_ref
+                if old_ref_raw and new_ref_raw:
+                    old_ref = ensure_prefixed(normalize_heading_ref(old_ref_raw), manual_type)
+                    new_ref = ensure_prefixed(normalize_heading_ref(new_ref_raw), manual_type)
+                    if old_ref and new_ref:
+                        updated[old_ref] = new_ref
 
-                            # If user edited the title, save it to update new_headings
-                            if new_title_raw:
-                                updated_titles[new_ref] = new_title_raw
+                        if new_title_raw:
+                            updated_titles[new_ref] = new_title_raw
 
-                            logger.debug(f"DEBUG [heading_review POST]: Including valid entry: '{old_ref}' -> '{new_ref}'"
-                                  f"{(' with edited title' if new_title_raw else '')}")        # If nothing provided, keep auto_crosswalk
+                        logger.debug(
+                            f"DEBUG [heading_review POST]: Including valid entry: '{old_ref}' -> '{new_ref}'"
+                            f"{(' with edited title' if new_title_raw else '')}"
+                        )
         if not updated:
             fallback = {}
             if heading_map:
@@ -546,6 +559,7 @@ def heading_review(session_id):
         sample_new_keys = list(new_headings.keys())[:5]
         logger.debug(f"DEBUG [heading_review]: Sample new_headings keys: {sample_new_keys}")
 
+    csrf_token = generate_csrf()
     review_html = f"""
     <!doctype html>
     <html lang="en"><head>
@@ -587,12 +601,10 @@ def heading_review(session_id):
       <li><strong>Uncheck "Valid?"</strong> to exclude invalid rows (TOC entries, malformed references, duplicates)</li>
       <li><strong>Edit "NEW Reference"</strong> to correct wrong conversions (e.g., "Chapter 5A.2.b" → "Chapter 5.1.2.2")</li>
       <li><strong>Edit "NEW Title"</strong> to clean up extracted titles (remove paragraph content, fix special characters, etc.)</li>
-      <li><strong>Or upload a CSV/XLSX</strong> file to override all mappings</li>
       <li><em>Note: Un-numbered headings appear with a blank OLD Reference so you can assign a NEW Reference.</em></li>
     </ul>
-    <form method="POST" enctype="multipart/form-data">
-      <label style="font-weight:600;">Import heading map (optional, CSV/XLSX):</label>
-      <input type="file" name="heading_map" accept=".csv,.xlsx" style="margin:6px 0 12px;">
+    <form method="POST">
+      <input type="hidden" name="csrf_token" value="{html.escape(csrf_token, quote=True)}">
       <div class="actions" style="margin-bottom:12px;">
         <button type="button" class="btn secondary" id="select_all_crosswalk">Select all</button>
         <button type="button" class="btn secondary" id="select_none_crosswalk">Select none</button>
@@ -619,6 +631,7 @@ def heading_review(session_id):
         new_title = old_title  # Start with same title as old
 
         # But if new_headings has an actual entry (from HTML conversion), prefer that
+        alt_key = ""
         if new_headings:
             scraped_title = new_headings.get(new_ref, {}).get("text", "")
             if not scraped_title:
@@ -634,21 +647,21 @@ def heading_review(session_id):
         # Create a stable ID for this heading entry
         heading_id = f"head_{idx}"
 
-        # Escape values for HTML attributes to prevent breaking the form
-        escaped_new_ref = new_ref.replace("'", "&#39;").replace('"', "&quot;")
-        escaped_new_title = new_title.replace("'", "&#39;").replace('"', "&quot;")
-        escaped_old_ref = old_ref.replace("'", "&#39;").replace('"', "&quot;")
+        escaped_new_ref = html.escape(new_ref or "", quote=True)
+        escaped_new_title = html.escape(new_title or "", quote=True)
+        escaped_old_ref = html.escape(old_ref or "", quote=True)
         display_old_ref = "" if is_synthetic else old_ref
+        cell_old_ref = html.escape(display_old_ref, quote=False)
+        cell_old_title = html.escape(old_title or "", quote=False)
         checked_attr = "checked" if not is_synthetic else ""
 
         review_html += (
             "<tr>"
             f"<td style='text-align:center;'><input type='checkbox' name='valid_{heading_id}' {checked_attr}></td>"
-            f"<td>{display_old_ref}</td>"
-            f"<td>{old_title}</td>"
+            f"<td>{cell_old_ref}</td>"
+            f"<td>{cell_old_title}</td>"
             f"<td><input type='text' name='new_ref_{heading_id}' value='{escaped_new_ref}'></td>"
             f"<td><input type='text' name='new_title_{heading_id}' value='{escaped_new_title}' style='width:100%;'></td>"
-            # Hidden field to store the original old_ref for lookup
             f"<input type='hidden' name='old_ref_{heading_id}' value='{escaped_old_ref}'>"
             "</tr>"
         )
@@ -658,14 +671,16 @@ def heading_review(session_id):
     if title_lookup_failures > 0:
         logger.debug(f"DEBUG [heading_review]: Total NEW title lookup failures: {title_lookup_failures} (but used old_title as fallback)")
 
-    review_html += """
+    review_html += f"""
         </tbody>
       </table>
       <div class="actions">
         <button type="submit" class="btn">Save & Continue</button>
-        <a href="{{ url_for('index') }}" class="btn secondary">Cancel</a>
+        <a href="{html.escape(url_for('index'), quote=True)}" class="btn secondary">Cancel</a>
       </div>
     </form>
+    """
+    review_html += """
     <script>
       (function(){
         const allBtn = document.getElementById('select_all_crosswalk');
@@ -705,6 +720,7 @@ HOME_PAGE = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>WSU Manual Converter</title>
   {{ wordpress_css_tag|safe }}
   <style>
@@ -759,6 +775,7 @@ HOME_PAGE = """
       <a href="{{ url_for('download', token=token, kind='js') }}" class="btn" style="background:#d97706; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Download JS</a>
       <a href="{{ url_for('download', token=token, kind='heading_map') }}" class="btn" style="background:#be185d; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Download Heading Map</a>
       <form action="{{ url_for('export_session', session_id=session_id) }}" method="post" style="display:inline;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" style="background:#0284c7">Export Session Bundle (.zip)</button>
       </form>
       <a href="{{ url_for('index') }}" style="margin-left:auto; align-self:center;">Start Over</a>
@@ -770,6 +787,7 @@ HOME_PAGE = """
   {% else %}
     <div class="card">
       <form action="/convert" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
           <label for="docx">Upload DOCX Manual:</label>
           <input type="file" id="docx" name="docx" accept=".docx" required>
@@ -830,6 +848,7 @@ HOME_PAGE = """
       <div class="card">
         <h3 style="margin-top:0">Session Bundle</h3>
         <form action="/import_bundle" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="file" name="bundle" accept=".zip" required style="margin-bottom:10px">
           <button type="submit" style="padding: 8px 16px; font-size:14px">Restore Session</button>
         </form>
@@ -837,6 +856,7 @@ HOME_PAGE = """
       <div class="card">
         <h3 style="margin-top:0">WordPress HTML</h3>
         <form action="/import_html" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="file" name="html_file" accept=".html,.htm" required style="margin-bottom:10px">
           <label for="stable_heading_map_file_html" style="font-size:13px;">Heading map JSON (optional):</label>
           <input id="stable_heading_map_file_html" type="file" name="stable_heading_map_file" accept=".json,application/json" style="margin-bottom:10px">
@@ -1069,6 +1089,7 @@ def convert():
             'temp_html_path': str(temp_html),
             'toc_depth': toc_depth,
             'preserve_numbers': preserve,
+            'numbering_mode': "preserve" if preserve else "css-counters",
             'mapping_mode': mapping_mode,
             'strip_docx_formatting': strip_docx_formatting,
             'theme_settings': theme_settings,
@@ -1331,10 +1352,12 @@ def review(session_id):
         logger.debug(f"DEBUG [review]: Sample display_crosswalk: {sample_items}")
     
     # Build review page HTML
+    csrf_token = generate_csrf()
     review_html = f"""
     <!doctype html>
     <html lang="en"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="csrf-token" content="{html.escape(csrf_token, quote=True)}">
     <title>Review Crosswalk - WSU Manual Converter</title>
     <style>
     body {{ font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; background: #f7f7f8; }}
@@ -1554,6 +1577,7 @@ def review(session_id):
     </div>
 
     <form method="POST" id="reviewForm">
+    <input type="hidden" name="csrf_token" value="{html.escape(csrf_token, quote=True)}">
     <input type="hidden" name="page" value="{page}">
     {f'''<div class="info" style="background: #eef2ff; border-left-color: #6366f1;">
     <strong>HTML Import Options:</strong><br>
@@ -2162,10 +2186,12 @@ def table_review(session_id):
             return redirect(url_for('review', session_id=session_id))
         return redirect(url_for("do_convert", session_id=session_id))
 
+    csrf_token = generate_csrf()
     review_html = f"""
     <!doctype html>
     <html lang="en"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="csrf-token" content="{html.escape(csrf_token, quote=True)}">
     <title>Table Review</title>
     <style>
     body {{ font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; background: #f7f7f8; }}
@@ -2210,6 +2236,7 @@ def table_review(session_id):
       </aside>
       <div class="controls-section">
       <form id="table-review-form" method="POST">
+        <input type="hidden" name="csrf_token" value="{html.escape(csrf_token, quote=True)}">
         <div class="row">
           <div>
             <label for="table_col1_align">Column 1 alignment</label>
@@ -2353,9 +2380,13 @@ def table_review(session_id):
       async function refresh() {{
         status.textContent = "Updating…";
         try {{
+          const csrf = document.querySelector('meta[name="csrf-token"]');
           const r = await fetch(url, {{
             method: "POST",
-            headers: {{ "Content-Type": "application/json" }},
+            headers: {{
+              "Content-Type": "application/json",
+              "X-CSRFToken": csrf ? csrf.getAttribute("content") : "",
+            }},
             body: JSON.stringify(payload()),
           }});
           const j = await r.json();
@@ -2522,25 +2553,14 @@ def do_convert(session_id):
         # Set numbering mode: "preserve" keeps original numbers, "css-counters" applies CSS auto-numbering
         numbering_mode = session_data.get('numbering_mode') if html_import else ("preserve" if preserve else "css-counters")
         
-        # Use our server-side generated TOC instead of an empty placeholder
-        theme_attr = f' data-theme="{sanitize_theme_id(theme_id, "manual")}"'
-        manual_grid_block = (
-            '<!-- ACCESSIBILITY: Skip navigation link for keyboard users (WCAG 2.4.1) -->\n'
-            '<a href="#main-content" class="skip-to-main">Skip to main content</a>\n'
-            f'<div class="manual-grid" data-toc-depth="{toc_depth}" data-manual-type="{manual_type}" data-numbering-mode="{numbering_mode}"{theme_attr}>\n'
-            '  <nav class="manual-toc" role="navigation" aria-label="Table of Contents">\n'
-            '    <h2 id="toc-heading">Table of Contents</h2>\n'
-            '    <div class="manual-search">\n'
-            '      <input type="text" class="manual-search-input" placeholder="Search headings and content..." aria-label="Search table of contents" aria-describedby="search-help" role="searchbox">\n'
-            '      <button type="button" class="manual-search-clear" aria-label="Clear search">X</button>\n'
-            '    </div>\n'
-            '    <span id="search-help" class="sr-only">Type to filter headings and content</span>\n'
-            f'    {toc_html}\n'
-            '  </nav>\n'
-            f'  <main class="manual" id="main-content" role="main" tabindex="-1">\n'
-            f'    {final_html}\n'
-            '  </main>\n'
-            '</div>\n'
+        # Single implementation for grid shell + a11y (see build_manual_grid_block)
+        manual_grid_block = build_manual_grid_block(
+            final_html,
+            toc_depth,
+            manual_type,
+            numbering_mode,
+            theme_id=theme_id,
+            toc_html=toc_html,
         )
 
         # 4. Export Artifacts
@@ -2611,10 +2631,15 @@ def do_convert(session_id):
             'numbering_mode': numbering_mode,
             'theme_settings': theme_settings
         })
-        session_file.write_text(json.dumps(session_data, indent=2, default=str), encoding='utf-8')
-
-        # Persist the stable map for future revisions
         save_stable_heading_map(session_id, final_html)
+        try:
+            if session.stable_map_json.exists():
+                session_data["stable_heading_map"] = json.loads(
+                    session.stable_map_json.read_text(encoding="utf-8")
+                )
+        except Exception as e:
+            logger.warning("Could not reload stable_heading_map into session: %s", e)
+        session_file.write_text(json.dumps(session_data, indent=2, default=str), encoding='utf-8')
 
         return render_template_string(HOME_PAGE, 
                                     show_preview=True, 
@@ -2783,16 +2808,32 @@ def export_session(session_id):
     bundle_name = f"{Path(filename).stem}_{session_id[:8]}_session.zip"
     bundle_path = session.root / bundle_name
 
+    stable_for_manifest = session_data.get("stable_heading_map", {}) or {}
+    if session.stable_map_json.exists():
+        try:
+            stable_for_manifest = json.loads(session.stable_map_json.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning("Export: could not read stable_heading_map.json: %s", e)
+
     manifest = {
         "document": filename,
         "doc_hash": compute_sha256(src_path),
         "manual_type": session_data.get('manual_type', 'chapter'),
         "toc_depth": session_data.get('toc_depth', 2),
         "mapping_mode": session_data.get('mapping_mode', 'map_new'),
+        "numbering_mode": session_data.get('numbering_mode', 'css-counters'),
+        "preserve_numbers": session_data.get('preserve_numbers', False),
         "edit_tables": session_data.get('edit_tables', False),
+        "html_import": session_data.get('html_import', False),
+        "rebuild_links": session_data.get('rebuild_links', False),
+        "strip_docx_formatting": session_data.get('strip_docx_formatting', False),
+        "infer_heading_depth": session_data.get('infer_heading_depth', False),
+        "infer_style_map": session_data.get('infer_style_map', {}),
+        "infer_sequence_map": session_data.get('infer_sequence_map', {}),
         "theme_settings": session_data.get('theme_settings', {}),
         "heading_edits": session_data.get('heading_edits', {}),
-        "stable_heading_map": session_data.get('stable_heading_map', {}),
+        "stable_heading_map": stable_for_manifest,
+        "stable_heading_map_raw": session_data.get('stable_heading_map_raw', "") or "",
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "files": {
             "docx": src_path.name,
@@ -2841,6 +2882,9 @@ def import_html():
         cleaned_html = strip_html_assets(raw_html)
         html_path.write_text(cleaned_html, encoding='utf-8')
         manual_html, meta = extract_manual_fragment(cleaned_html)
+        if not (manual_html or "").strip():
+            flash("Could not find manual content (expected .manual-grid / main.manual / div.manual).")
+            return redirect(url_for("index"))
         heading_offset = 0
         try:
             heading_offset = int(meta.get('heading_offset') or 0)
@@ -2920,6 +2964,28 @@ def import_html():
         flash(f"HTML import failed: {e}")
         return redirect(url_for("index"))
 
+
+def _bundle_import_post_pandoc_pipeline(normalized_html: str, manifest: dict, manual_type: str) -> str:
+    """
+    Post-process Pandoc body HTML when rebuilding from an imported session bundle.
+    Must stay aligned with convert() / do_convert(): infer depth, then optionally strip
+    heading numbers, then apply CSS-counter numbering with the correct preserve flag.
+    """
+    if manifest.get("mapping_mode", "map_new") == "map_new" and manifest.get("infer_heading_depth", False):
+        style_map = manifest.get("infer_style_map", {}) or {}
+        normalized_html = infer_heading_levels_from_prefix(
+            normalized_html, style_map if style_map else None
+        )
+    preserve_numbers = bool(manifest.get("preserve_numbers", False))
+    if manifest.get("mapping_mode", "map_new") == "keep_old":
+        preserve_numbers = True
+    if not preserve_numbers:
+        normalized_html, _ = strip_heading_numbers_dom(normalized_html)
+    return apply_css_counter_numbering(
+        normalized_html, manual_type, preserve=preserve_numbers
+    )
+
+
 @app.route("/import_bundle", methods=["POST"])
 def import_bundle():
     """Import a session bundle zip and copy contents into isolated session workspace"""
@@ -2958,6 +3024,10 @@ def import_bundle():
                 if not str(target).startswith(safe_root_str):
                     flash("Security error: Malicious bundle detected.")
                     return redirect(url_for("index"))
+            ok_zip, zip_msg = _zip_archive_within_limits(zf)
+            if not ok_zip:
+                flash(zip_msg)
+                return redirect(url_for("index"))
             zf.extractall(session.root)
             
         manifest_path = session.manifest_json
@@ -3024,12 +3094,20 @@ def import_bundle():
             wrapped = f'<div class="manual">{body}</div>'
             normalized_html = normalize_typed_lists(wrapped)
             normalized_html = strip_toc_sections_dom(normalized_html)
-            if manifest.get("mapping_mode", "map_new") == "map_new" and manifest.get("infer_heading_depth", False):
-                style_map = manifest.get("infer_style_map", {}) or {}
-                normalized_html = infer_heading_levels_from_prefix(normalized_html, style_map if style_map else None)
-            normalized_html, _ = strip_heading_numbers_dom(normalized_html)
-            normalized_html = apply_css_counter_numbering(normalized_html, manual_type, preserve=False)
+            normalized_html = _bundle_import_post_pandoc_pipeline(
+                normalized_html, manifest, manual_type
+            )
+            preserve_numbers = bool(manifest.get("preserve_numbers", False))
+            if manifest.get("mapping_mode", "map_new") == "keep_old":
+                preserve_numbers = True
             stable_heading_map = manifest.get("stable_heading_map", {}) or {}
+            if session.stable_map_json.exists():
+                try:
+                    stable_heading_map = json.loads(
+                        session.stable_map_json.read_text(encoding="utf-8")
+                    )
+                except Exception as e:
+                    logger.warning("Bundle stable_heading_map.json unreadable, using manifest: %s", e)
             normalized_html = add_heading_ids(normalized_html, stable_map=stable_heading_map)
 
             logger.debug("="*80)
@@ -3063,7 +3141,9 @@ def import_bundle():
                 'pre_path': str(session.pre_docx),
                 'temp_html_path': str(session.temp_html),
                 'toc_depth': manifest.get("toc_depth", 2),
-                'preserve_numbers': manifest.get("preserve_numbers", False),
+                'preserve_numbers': preserve_numbers,
+                'numbering_mode': manifest.get("numbering_mode")
+                or ("preserve" if preserve_numbers else "css-counters"),
                 'mapping_mode': manifest.get("mapping_mode", 'map_new'),
                 'theme_settings': theme_settings,
                 'infer_heading_depth': manifest.get("infer_heading_depth", False),
