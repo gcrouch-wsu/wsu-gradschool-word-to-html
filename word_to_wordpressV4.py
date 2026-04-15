@@ -2676,7 +2676,8 @@ def do_convert(session_id):
         return render_template_string(HOME_PAGE, 
                                     show_preview=True, 
                                     hide_upload=True, 
-                                    body_html=BeautifulSoup(final_html, 'html.parser'), 
+                                    # Full grid shell so inlined wordpress.js finds .manual-grid / .manual-toc
+                                    body_html=manual_grid_block,
                                     token=token, 
                                     session_id=session_id,
                                     page_title=filename.replace('.docx', '').replace('_', ' ').title(),
