@@ -66,6 +66,11 @@ from config import (
     SESSION_TTL_HOURS,
     ZIP_MAX_UNCOMPRESSED_BYTES,
     ZIP_MAX_FILES,
+    PANDOC_PINNED_VERSION,
+    PANDOC_UPDATE_CHECK_ENABLED,
+    PANDOC_UPDATE_CHECK_TTL_HOURS,
+    PANDOC_UPDATE_CHECK_TIMEOUT_SECONDS,
+    PANDOC_UPDATE_CACHE_PATH,
 )
 from core.permalinks import (
     normalize_heading_signature,
@@ -100,7 +105,12 @@ from core.html_processor import (
     build_manual_grid_block,
     sanitize_manual_html_fragment,
 )
-from core.pandoc_wrapper import run_pandoc
+from core.pandoc_wrapper import (
+    run_pandoc,
+    get_pandoc_version,
+    check_min_version,
+    check_for_pandoc_update,
+)
 from core.docx_processor import (
     preprocess_docx,
     compute_sha256,
@@ -223,6 +233,30 @@ def _run_session_prune_before_request():
         _prune_stale_sessions_if_due()
     except Exception:
         logger.exception("Session prune hook failed")
+
+
+# One-shot guard for the Pandoc version/update check. Under Gunicorn the
+# `if __name__ == "__main__"` block never runs, so the checks fire lazily on
+# the first request per worker. Under local `python word_to_wordpressV4.py`
+# the __main__ block runs them eagerly and sets this flag so the hook below
+# is a no-op on the first request.
+_pandoc_startup_checks_done = False
+
+
+@app.before_request
+def _run_pandoc_startup_checks_before_request():
+    global _pandoc_startup_checks_done
+    if _pandoc_startup_checks_done:
+        return
+    # Set the flag in `finally` so one attempt per worker is guaranteed even
+    # if the check raises — no silent retry loop if the inner try/except is
+    # ever tightened or removed.
+    try:
+        _startup_pandoc_checks()
+    except Exception:
+        logger.exception("Pandoc startup check failed")
+    finally:
+        _pandoc_startup_checks_done = True
 
 
 @app.errorhandler(RequestEntityTooLarge)
@@ -3213,12 +3247,61 @@ def import_bundle():
 
 # --------------------------------- Main ------------------------------------
 
+def _startup_pandoc_checks() -> None:
+    """
+    Verify Pandoc is present, log its version, warn if older than the pinned
+    version, and (optionally) notify the operator when a newer upstream
+    release is available. Never auto-upgrades. Never blocks on the network.
+    """
+    installed = get_pandoc_version()
+    if not installed:
+        logger.error(
+            "Pandoc is not installed or not on PATH. "
+            "Install from https://pandoc.org/installing.html"
+        )
+        raise RuntimeError("Pandoc not found on PATH")
+
+    logger.info(f"Pandoc: installed version {installed} (pinned {PANDOC_PINNED_VERSION})")
+
+    if not check_min_version(installed, PANDOC_PINNED_VERSION):
+        logger.warning(
+            "Pandoc %s is older than the pinned version %s. "
+            "The app will still run, but consider upgrading: "
+            "https://github.com/jgm/pandoc/releases/tag/%s",
+            installed, PANDOC_PINNED_VERSION, PANDOC_PINNED_VERSION,
+        )
+
+    if not PANDOC_UPDATE_CHECK_ENABLED:
+        return
+
+    ttl_seconds = max(0, PANDOC_UPDATE_CHECK_TTL_HOURS) * 3600
+    newer = check_for_pandoc_update(
+        installed=installed,
+        cache_path=PANDOC_UPDATE_CACHE_PATH,
+        ttl_seconds=ttl_seconds,
+        timeout_seconds=PANDOC_UPDATE_CHECK_TIMEOUT_SECONDS,
+    )
+    if newer:
+        # Informational only — operators upgrade deliberately (bump pin in
+        # config.py + Dockerfile). Keep at INFO so the message does not look
+        # like an alert in production log aggregators; pin mismatches above
+        # remain at WARNING.
+        logger.info(
+            "Pandoc update available: %s is out. You are running %s. "
+            "Review release notes at https://github.com/jgm/pandoc/releases/tag/%s "
+            "before upgrading. (Set PANDOC_UPDATE_CHECK_ENABLED=0 to silence.)",
+            newer, installed, newer,
+        )
+
+
 if __name__ == "__main__":
+    # Run eagerly so the operator sees the version / pin status before the
+    # browser window opens. Mark the flag done so the before_request hook
+    # does not re-run the check on the first HTTP hit.
     try:
-        subprocess.run(["pandoc", "-v"], check=True, capture_output=True)
-    except Exception:
-        logger.info("Pandoc is not installed or not on PATH. Install from https://pandoc.org/installing.html")
-        raise
+        _startup_pandoc_checks()
+    finally:
+        _pandoc_startup_checks_done = True
     logger.info(f"Persist directory for edits: {PERSIST_DIR}")
 
     port = int(os.environ.get("PORT", 5000))

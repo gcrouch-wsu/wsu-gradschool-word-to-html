@@ -24,16 +24,28 @@ Phased hardening, deployment checklists, and sequencing of fixes are tracked by 
 ### Prerequisites
 
 - **Python 3.12+** recommended (matches Docker and reliable `lxml` wheels on Windows); **3.10+** may work if dependencies install cleanly
-- **Pandoc** — required for DOCX-to-HTML and HTML-to-DOCX conversion
+- **Pandoc 3.9.0.2** — pinned known-good version; see **Pandoc version policy** below
 
 ### Install Pandoc
 
-Download from https://pandoc.org/installing.html and ensure `pandoc` is on your PATH. The app checks for Pandoc at startup and will not run without it.
+Download **Pandoc 3.9.0.2** from https://github.com/jgm/pandoc/releases/tag/3.9.0.2 and ensure `pandoc` is on your PATH. The app checks for Pandoc at startup and will not run without it.
 
 Verify:
 ```bash
 pandoc --version
 ```
+
+### Pandoc version policy
+
+The app pins a known-good Pandoc version (**3.9.0.2**) in `config.py` (`PANDOC_PINNED_VERSION`) and in the `Dockerfile`. It **does not auto-upgrade**. When the app starts it:
+
+1. Logs the installed Pandoc version at `INFO`.
+2. Warns (`WARNING`) if the installed version is older than the pin.
+3. Checks the Pandoc GitHub releases API (throttled by `PANDOC_UPDATE_CHECK_TTL_HOURS`, default 7 days) and emits an `INFO` line if a newer upstream release exists. The check has a short network timeout, caches the result under `PERSIST_DIR/pandoc_update_cache.json`, and is skipped silently on any network failure — it will never block startup.
+
+The checks run once per worker process: eagerly under `python word_to_wordpressV4.py`, and on the first request under Gunicorn. On ephemeral-disk hosts (Railway, fresh CI containers) the cache is recreated on every cold boot, so the GitHub lookup may run per container rather than strictly weekly — set `PANDOC_UPDATE_CHECK_ENABLED=0` to disable it in those environments.
+
+When a newer release is announced, review the release notes, upgrade your local Pandoc manually, bump the pin in **three places together** (`PANDOC_PINNED_VERSION` in `config.py`, `ARG PANDOC_VERSION` in the `Dockerfile`, and the prerequisite version in this README), rerun the tests, and commit.
 
 ### Install Python Dependencies
 
@@ -141,6 +153,10 @@ For local development, the defaults below are usable. For any deployed environme
 | `SESSION_TTL_HOURS` | `48` | When greater than `0`, stale session directories are pruned on a throttled schedule in the main app; set `0` to disable |
 | `ZIP_MAX_UNCOMPRESSED_BYTES` / `ZIP_MAX_FILES` | Defaults in `config.py` | Caps bundle import before `extractall` |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
+| `PANDOC_PINNED_VERSION` | `3.9.0.2` | Minimum known-good Pandoc; startup warns if older |
+| `PANDOC_UPDATE_CHECK_ENABLED` | `1` | Set `0` to disable the weekly upstream-release check |
+| `PANDOC_UPDATE_CHECK_TTL_HOURS` | `168` | Cache duration for the upstream-release check (hours) |
+| `PANDOC_UPDATE_CHECK_TIMEOUT_SECONDS` | `3.0` | Network timeout for the upstream-release check |
 
 ## Session Data
 

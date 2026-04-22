@@ -12,6 +12,22 @@ SESSION_TTL_HOURS = int(os.environ.get("SESSION_TTL_HOURS", "48"))
 ZIP_MAX_UNCOMPRESSED_BYTES = int(os.environ.get("ZIP_MAX_UNCOMPRESSED_BYTES", str(200 * 1024 * 1024)))
 ZIP_MAX_FILES = int(os.environ.get("ZIP_MAX_FILES", "5000"))
 
+# --- Pandoc Version Policy ---
+# Pinned "known-good" Pandoc version. The app does not auto-upgrade; it only
+# warns when the installed binary is older than this or when a newer upstream
+# release exists. Bump this value when you intentionally adopt a new release.
+PANDOC_PINNED_VERSION = os.environ.get("PANDOC_PINNED_VERSION", "3.9.0.2")
+
+# Set to "0" to disable the one-shot GitHub release lookup at startup.
+PANDOC_UPDATE_CHECK_ENABLED = os.environ.get("PANDOC_UPDATE_CHECK_ENABLED", "1") not in ("0", "false", "False", "")
+
+# How long a successful update check is cached before the app will re-query
+# GitHub. Default: 7 days.
+PANDOC_UPDATE_CHECK_TTL_HOURS = int(os.environ.get("PANDOC_UPDATE_CHECK_TTL_HOURS", "168"))
+
+# Network timeout for the update check. Startup never waits longer than this.
+PANDOC_UPDATE_CHECK_TIMEOUT_SECONDS = float(os.environ.get("PANDOC_UPDATE_CHECK_TIMEOUT_SECONDS", "3.0"))
+
 # --- Path Configuration ---
 # All paths resolve under a single PERSIST_DIR
 PERSIST_DIR = Path(os.environ.get("PERSIST_DIR", tempfile.gettempdir())) / "docx2html_wsumanual"
@@ -19,6 +35,9 @@ PERSIST_DIR.mkdir(parents=True, exist_ok=True)
 
 # Centralized location for reference templates (relative to app root)
 REFERENCE_DIR = Path(__file__).parent / "reference_docs"
+
+# Cache file for the last-known-latest Pandoc version (GitHub lookup).
+PANDOC_UPDATE_CACHE_PATH = PERSIST_DIR / "pandoc_update_cache.json"
 
 # --- Session Isolation Helper ---
 class SessionDir:
