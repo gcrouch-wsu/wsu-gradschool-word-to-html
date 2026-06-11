@@ -16,12 +16,13 @@ from flask import (
 from werkzeug.utils import secure_filename
 
 from webapp import app
-from auth import current_uid, session_owner_ok
+from auth import current_uid
 from config import SessionDir, ZIP_MAX_UNCOMPRESSED_BYTES, ZIP_MAX_FILES
 from services.session_state import save_session_data, load_edits_data
 from services.docx_session import (
     run_docx_prepipeline,
     scrape_new_structure,
+    build_identity_crosswalk,
     build_heading_order,
     build_session_data,
 )
@@ -231,10 +232,11 @@ def import_bundle():
             # right operand). Directory entries are excluded so a manifest can't
             # point docx/edits at a directory (which would later blow up in
             # compute_sha256/shutil.move).
+            zf_members = [info.filename for info in zf.infolist()]
             member_basenames = {
-                info.filename.replace('\\', '/').rstrip('/').split('/')[-1]
-                for info in zf.infolist()
-                if not info.filename.endswith('/')
+                name.replace('\\', '/').rstrip('/').split('/')[-1]
+                for name in zf_members
+                if not name.endswith('/')
             }
             zf.extractall(session.root)
 
@@ -257,6 +259,21 @@ def import_bundle():
                     or nm not in member_basenames):
                 flash("Security error: Malicious bundle detected.")
                 return redirect(url_for("index"))
+
+        # Defense in depth: a legitimate bundle contains only the manifest, the
+        # docx, the edits, and (optionally) the stable-map. Delete any other
+        # extracted member so a malicious bundle can't plant a token artifact
+        # (e.g. a forged {uuid}_meta.json the download route would later trust).
+        allowed_members = {doc_name, edits_name, "manifest.json", "stable_heading_map.json"}
+        for name in zf_members:
+            if name.endswith('/'):
+                continue
+            base = name.replace('\\', '/').rstrip('/').split('/')[-1]
+            if base not in allowed_members:
+                try:
+                    (session.root / base).unlink()
+                except OSError:
+                    pass
 
         doc_path = session.root / doc_name
         edits_path = session.root / edits_name
@@ -316,9 +333,13 @@ def import_bundle():
                 except Exception as e:
                     logger.warning("Bundle stable_heading_map.json unreadable, using manifest: %s", e)
 
-            # Phases 3-4: heading IDs, scrape, auto-match
+            # Phases 3-4: heading IDs, scrape, then build the crosswalk the same
+            # way /convert does — identity for keep_old, auto-match otherwise.
             normalized_html, new_headings = scrape_new_structure(normalized_html, stable_heading_map)
-            auto_crosswalk = auto_match_old_to_new_references(references, new_headings, manual_type=manual_type)
+            if manifest.get("mapping_mode", "map_new") == "keep_old":
+                auto_crosswalk = build_identity_crosswalk(references)
+            else:
+                auto_crosswalk = auto_match_old_to_new_references(references, new_headings, manual_type=manual_type)
 
             theme_settings, _ = coerce_theme_settings(manifest.get("theme_settings"), manual_type)
             session_data = build_session_data(
@@ -343,7 +364,10 @@ def import_bundle():
                 infer_heading_depth=manifest.get("infer_heading_depth", False),
                 infer_style_map=manifest.get("infer_style_map", {}),
                 infer_sequence_map=manifest.get("infer_sequence_map", {}),
-                stable_heading_map=manifest.get("stable_heading_map", {}) or {},
+                # Use the map actually applied above (the extracted
+                # stable_heading_map.json when present, else the manifest's), so
+                # the persisted session matches what was scraped/cached.
+                stable_heading_map=stable_heading_map,
                 stable_heading_map_raw=manifest.get("stable_heading_map_raw", "") or "",
                 docx_links_by_para=docx_links_by_para,
                 edit_tables=manifest.get("edit_tables", False),

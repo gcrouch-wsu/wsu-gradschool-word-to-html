@@ -353,10 +353,18 @@ target.
 
 ## 10. Templates & rendering
 
-All five pages render from `templates/` with Jinja autoescaping; the route
+All pages render from `templates/` with Jinja autoescaping; the route
 handlers build plain data structures (row dicts, per-paragraph reference dicts)
-and hand them to templates. No HTML string-building lives in Python.
-CSRF tokens come from Flask-WTF's `csrf_token()` Jinja global.
+and hand them to templates. CSRF tokens come from Flask-WTF's `csrf_token()`
+Jinja global.
+
+**Allowed exception:** the home/preview routes (`routes/pages.py:index`,
+`do_convert`) wrap the app's own trusted `wordpress.css` / `wordpress.js` text in
+`<style>`/`<script>` tags and pass them through `|safe` for the live preview,
+and the download route assembles the generated manual output (grid/TOC block,
+export fragments, standalone wrapper). These are generated-output/asset tags
+built from trusted local content, not user-derived page HTML — consistent with
+the §2 invariant.
 
 ---
 
@@ -400,7 +408,7 @@ html_processor and docx_processor are behaviorally identical.
 
 ## 13. Testing
 
-`python -m pytest tests/ -q` — **125 tests.** Runtime deps in
+`python -m pytest tests/ -q` — **131 tests.** Runtime deps in
 `requirements.txt`; test deps add `pytest` via `requirements-dev.txt`. CI
 (`.github/workflows/ci.yml`) installs the pinned Pandoc and the ranged
 requirements and runs the suite on every push to `main` and every PR.
@@ -499,7 +507,7 @@ version matches `PANDOC_PINNED_VERSION` (no "older than pinned" warning);
 trusted users, single Railway instance, with **Tier-1 authentication enabled**
 (see below). It is **not yet ready as a large-scale public, multi-tenant service**
 without the remaining items. The limiting factors are scope and architecture
-decisions, not code quality: the codebase is well-structured, tested (125 tests),
+decisions, not code quality: the codebase is well-structured, tested (131 tests),
 and hardened on the paths exercised so far.
 
 ### Authentication — Tier 1 (implemented)
@@ -552,3 +560,295 @@ database).
 6. For scale or institutional rollout: plan Tier 2 (DB users) or Tier 3 (SSO).
 7. Commission a security review appropriate to the exposure (the code reviews to
    date are not a penetration test).
+
+---
+
+## 17. Full-repo audit findings (2026-06-11)
+
+Baseline checks:
+
+- `python -m pytest tests/ -q`: **125 passed in 15.26s**. No e2e/auth skips;
+  local Pandoc was detected as 3.9.0.2 during later startup probes.
+- `python -m pyflakes word_to_wordpressV4.py webapp.py auth.py routes/ services/ core/ utils/ docx_config_generator.py`:
+  failed on unused imports/locals; see finding 10.
+- Git history skimmed: latest auth/refactor/hardening commit is
+  `8a1d43c`; prior Pandoc startup work is `3669dd9`; earlier broad hardening is
+  `49ee9d3`.
+
+Findings:
+
+1. **Auth-enabled default-secret sessions are forgeable.**
+   - Verdict: confirmed bug / hardening.
+   - File: `config.py:9`, `webapp.py:43`, `auth.py:107`.
+   - Severity: high.
+   - Evidence: with auth enabled and `app.secret_key == "dev-secret"`, a Flask
+     session cookie signed with the known default and payload
+     `{"_user_id": "alice@wsu.edu"}` reached `/` with HTTP 200, without a
+     password. Flask-Login's user loader accepts any configured email in the
+     signed session.
+   - Minimal fix: refuse startup when `auth_enabled()` and
+     `FLASK_SECRET_KEY` is unset, `dev-secret`, or otherwise explicitly
+     insecure. My recommendation is a hard fail whenever auth is enabled; at
+     minimum hard fail when `PORT` is set. Add a regression test that a forged
+     default-secret cookie cannot authenticate.
+
+2. **Bundle import can plant a forged download meta file and read arbitrary
+   server-readable files.**
+   - Verdict: confirmed bug.
+   - File: `routes/imports.py:239`, `routes/downloads.py:40`,
+     `routes/downloads.py:63`, `routes/downloads.py:99`,
+     `routes/downloads.py:101`.
+   - Severity: high.
+   - Evidence: a valid imported ZIP with normal `manual.docx`, `edits.json`,
+     and `manifest.json`, plus an extra `{uuid}_meta.json` whose `docx_path`
+     pointed at `PROJECT_SPEC.md`, imported successfully. A subsequent
+     `GET /download/<new-session>/<that-token>/docx` returned HTTP 200 with
+     body prefix `b'# Project Specification '`. The manifest docx/edits path
+     policy held, but arbitrary extra archive members remain in the session
+     root and the download route trusts paths from meta JSON.
+   - Minimal fix: in `download()`, derive artifact paths from
+     `session.root` + `token` instead of trusting meta path fields, or require
+     every meta path to resolve under the current `session.root`/export
+     directory before `exists()`/`send_file()`. Also reject or delete imported
+     `{uuid}_*` artifact/meta members during bundle import, and test that a
+     planted meta file cannot read outside the session directory.
+
+3. **Ownerless sessions are shared by all authenticated users; the download
+   fallback makes this worse.**
+   - Verdict: spec-code mismatch / hardening.
+   - File: `auth.py:129`, `auth.py:130`, `routes/downloads.py:43`.
+   - Severity: medium.
+   - Evidence: `session_owner_ok({})` returns true when auth is enabled because
+     `owner is None` is accepted. The current session-creating routes do set
+     owner (`routes/convert_flow.py:480`, `routes/imports.py:153`,
+     `routes/imports.py:356`) and later saves preserve the same dict, but
+     ownerless legacy/corrupt sessions and downloads with missing
+     `session.json` are not isolated.
+   - Minimal fix: when auth is enabled, require `owner == current_uid()` for
+     session access. If legacy sessions must be supported, make that an
+     explicit migration or temporary compatibility switch, not the default.
+     In `download()`, load `session_data` first and reject when it is `None`.
+
+4. **Theme `font_family` can break out of generated `<style>` blocks.**
+   - Verdict: hardening.
+   - File: `core/styling.py:154`, `core/styling.py:186`,
+     `core/styling.py:316`, `core/styling.py:319`,
+     `routes/convert_flow.py:1263`, `routes/convert_flow.py:1413`,
+     `templates/home.html:8`.
+   - Severity: medium.
+   - Evidence: `coerce_theme_settings({"font_family":
+     "x;}</style><script>alert(1)</script><style>{"}, "chapter")` preserves the
+     raw font string, and `build_theme_css()` emits
+     `--manual-font: x;}</style><script>alert(1)</script><style>{;`. The normal
+     UI does not expose `font_family`, but a crafted POST or bundle manifest can.
+   - Minimal fix: allowlist font family values or CSS-escape/sanitize the
+     property before interpolation. Re-coerce any `theme_settings` read from
+     meta/session/manifest immediately before `build_theme_css()`, and add a
+     regression test for `</style>` in theme input.
+
+5. **Imported `keep_old` bundles do not rebuild the identity crosswalk.**
+   - Verdict: confirmed bug.
+   - File: `routes/imports.py:321`, compared with
+     `routes/convert_flow.py:444`-`routes/convert_flow.py:446` and
+     `services/docx_session.py:68`.
+   - Severity: medium.
+   - Evidence: `/convert` uses `build_identity_crosswalk(references)` when
+     `mapping_mode == "keep_old"`, but `/import_bundle` always calls
+     `auto_match_old_to_new_references(...)` after scraping. A keep-old bundle
+     can therefore import with different reference mapping behavior than the
+     original session.
+   - Minimal fix: import and use `build_identity_crosswalk` in
+     `/import_bundle` when the manifest mapping mode is `keep_old`.
+
+6. **Bundle stable-map file fallback is applied, then not persisted into
+   `session.json`.**
+   - Verdict: confirmed bug / spec-code mismatch.
+   - File: `routes/imports.py:310`, `routes/imports.py:313`,
+     `routes/imports.py:320`, `routes/imports.py:346`.
+   - Severity: low-medium.
+   - Evidence: if `stable_heading_map.json` exists, import code loads it into
+     local `stable_heading_map` and uses it for `scrape_new_structure()`, but
+     `build_session_data()` receives `manifest.get("stable_heading_map", {})`
+     instead of the local fallback value. A bundle whose file and manifest map
+     differ can scrape with one map and later convert/cache with another.
+   - Minimal fix: pass `stable_heading_map=stable_heading_map` to
+     `build_session_data()`.
+
+7. **`_safe_next()` avoids the tested open redirects, but CRLF input causes a
+   login 500.**
+   - Verdict: hardening.
+   - File: `routes/auth_routes.py:13`, `routes/auth_routes.py:34`.
+   - Severity: low.
+   - Evidence: route-level probes with CSRF disabled showed `//evil.com`,
+     `%2f%2f...`, and `https:/x` redirect to `/`; `/\evil.com` becomes
+     `/%5Cevil.com`. A valid login with
+     `next=/%0d%0aLocation:%20https://evil.com` raises Werkzeug's
+     "Header values must not contain newline characters" and returns 500.
+   - Minimal fix: reject control characters and backslashes before `redirect()`;
+     use `urlsplit`/same-origin validation and return `url_for("index")` for
+     any parse failure.
+
+8. **`SessionDir` says UUID4, but validation accepts non-v4 UUID-shaped
+   strings.**
+   - Verdict: spec-code mismatch.
+   - File: `config.py:46`, `config.py:49`.
+   - Severity: low.
+   - Evidence: `is_valid_session_id("00000000-0000-0000-0000-000000000000")`
+     and `is_valid_session_id("11111111-1111-1111-1111-111111111111")` both
+     returned true. The regex checks lowercase UUID shape, not version/variant.
+   - Minimal fix: parse with `uuid.UUID(value, version=4)` and compare the
+     canonical string, or update the spec from "UUID4" to "canonical lowercase
+     UUID-shaped string."
+
+9. **A small amount of non-manual HTML tag assembly still lives in route code.**
+   - Verdict: nit / spec-code mismatch.
+   - File: `routes/pages.py:42`, `routes/pages.py:43`,
+     `templates/home.html:8`, `templates/home.html:83`.
+   - Severity: low.
+   - Evidence: the main index route builds `<style>...</style>` and
+     `<script>...</script>` strings for local WordPress assets and passes them
+     through `|safe`. The generated-output/download paths are expected to do
+     this, but §2/§10 currently say page/form HTML lives in templates and the
+     exception is generated manual output.
+   - Minimal fix: either move those two tags into `home.html` and pass raw
+     css/js text, or explicitly document these local asset tags as an allowed
+     route-level exception.
+
+10. **Static lint is not clean.**
+    - Verdict: nit.
+    - File: representative examples include `word_to_wordpressV4.py:15`,
+      `word_to_wordpressV4.py:16`, `routes/convert_flow.py:558`,
+      `routes/convert_flow.py:1148`, `routes/downloads.py:20`,
+      `routes/imports.py:19`, `core/docx_processor.py:5`,
+      `core/html_processor.py:1`, `core/styling.py:3`,
+      `docx_config_generator.py:980`.
+    - Severity: low.
+    - Evidence: requested `pyflakes` command exited 1 with unused imports and
+      unused locals across the refactor. Some imports are intentional side
+      effects/re-exports, but the chosen tool still reports them.
+    - Minimal fix: remove true dead imports/locals; for intentional
+      registration/re-export imports, use a linter-compatible pattern or switch
+      the documented check to a tool/configuration that honors the intentional
+      exceptions.
+
+Confirmed controls / false alarms:
+
+- Verdict: false-alarm. File: `webapp.py:61`, `webapp.py:65`-`webapp.py:72`.
+  Severity: none. Evidence: enumerated `app.url_map`; with auth enabled,
+  unauthenticated `GET /` and `/instructions` redirect to `/login`, public
+  `/healthz` and `/login` remain reachable, malformed/unknown routes return
+  404/405, and POSTs are stopped by CSRF before handler code. The
+  `request.endpoint is None` early return did not expose a sensitive endpoint.
+  Minimal fix: none.
+- Verdict: false-alarm with caveat from finding 3. File:
+  `routes/convert_flow.py:455`, `routes/convert_flow.py:480`,
+  `routes/imports.py:134`, `routes/imports.py:153`,
+  `routes/imports.py:324`, `routes/imports.py:356`. Severity: none. Evidence:
+  `/convert`, `/import_html`, and `/import_bundle` all use
+  `build_session_data()` and then set `owner=current_uid()`; later
+  `save_session_data()` calls mutate/persist the existing dict and do not drop
+  `owner`. Minimal fix: none beyond tightening ownerless behavior.
+- Verdict: false-alarm. File: `core/html_processor.py:95`,
+  `core/html_processor.py:113`-`core/html_processor.py:119`,
+  `core/html_processor.py:1045`, `utils/url_policy.py:4`,
+  `routes/convert_flow.py:660`, `routes/convert_flow.py:809`,
+  `routes/convert_flow.py:925`. Severity: none. Evidence: sanitizer probe
+  stripped `<script>`, event handlers, `javascript:` hrefs, and disallowed CSS
+  while retaining allowed `text-align`; review/export links use
+  `is_safe_href()` and `sanitize_external_href()`. Minimal fix: none for this
+  path.
+- Verdict: false-alarm. File: `core/pandoc_wrapper.py:20`-`core/pandoc_wrapper.py:35`,
+  `core/pandoc_wrapper.py:46`-`core/pandoc_wrapper.py:54`,
+  `core/pandoc_wrapper.py:118`-`core/pandoc_wrapper.py:130`. Severity: none.
+  Evidence: Pandoc is invoked via argument lists, not shell strings, and
+  `check_min_version()` returns false for missing/older/unparseable installed
+  versions. Minimal fix: none.
+- Verdict: false-alarm. File: `core/html_processor.py:444`-`core/html_processor.py:504`.
+  Severity: none. Evidence: a probe with three-plus duplicate headings across
+  interleaved levels produced unique IDs
+  `['overview', 'details', 'overview-1', 'overview-2', 'details-1',
+  'overview-3']` and stayed identical across three stable-map reruns. Minimal
+  fix: none.
+- Verdict: false-alarm / not locally verifiable. File: `Dockerfile:5`,
+  `config.py:20`, `README.md:31`, `.github/workflows/ci.yml`, and
+  `requirements.lock.txt:1`. Severity: none. Evidence: Pandoc pin is
+  consistent at 3.9.0.2, Docker installs from `requirements.lock.txt`, and CI
+  workflow exists. I did not verify the live Railway deployment or real-manual
+  output quality from this local audit. Minimal fix: execute the §14 Railway
+  smoke check and real-document QA separately.
+
+Overall go/no-go for the stated scope:
+
+- **No-go as-is for the deployed auth-on app until at least findings 1 and 2
+  are fixed.** Production is reportedly using a strong `FLASK_SECRET_KEY`, which
+  operationally mitigates finding 1 today, but the code should still hard-fail
+  the insecure auth configuration. Finding 2 is an authenticated arbitrary file
+  read through bundle import/download metadata and should block even the
+  small-trusted-team Railway scope.
+- After fixing findings 1 and 2, and preferably the medium hardening/correctness
+  items 3-5, the app is a reasonable go for its stated narrow scope: small
+  trusted team, single Railway instance, auth enabled, non-durable local
+  sessions. This audit did not validate live Railway runtime behavior or
+  publication quality on real manuals.
+
+---
+
+## 18. Audit remediation (2026-06-11)
+
+Independent verification and fixes for the §17 findings (each was reproduced
+before changing code; Codex's false-alarm classifications were spot-checked and
+accepted). Suite after this pass: **131 passing** (was 125; +6 regression tests).
+
+### §17 findings — confirmed and fixed
+
+| # | Severity | Verdict | Fix |
+|---|---|---|---|
+| 1 | high | confirmed (reproduced forged cookie → 200) | `webapp.py` now hard-fails at startup when auth is enabled with an unset/`dev-secret` `FLASK_SECRET_KEY`, and the request gate aborts 500 if auth is enabled under an insecure secret. |
+| 2 | high | confirmed (planted `{token}_meta.json` → read `PROJECT_SPEC.md` via download) | `download()` now requires the path from meta to resolve **inside the session root** (`_within_session`) before opening it, and requires a real `session.json`; `import_bundle` deletes any extracted member that isn't `manifest.json`/docx/edits/`stable_heading_map.json`, so a forged token artifact can't be planted. |
+| 3 | medium | confirmed | `session_owner_ok` no longer accepts ownerless sessions when auth is enabled (`owner` must match the signed-in user); `download()` rejects a missing `session.json`. |
+| 4 | medium | confirmed (`</style><script>` survived in generated CSS) | `font_family` is sanitized to an allowlisted character set in both `coerce_theme_settings` and at the point of use in `build_theme_css` (covers theme settings read back from meta/manifest without re-coercion). |
+| 5 | medium | confirmed | `/import_bundle` now uses `build_identity_crosswalk` for `keep_old` manifests, matching `/convert`. |
+| 6 | low-med | confirmed | `/import_bundle` persists the stable map it actually applied (the extracted file when present) into `session.json`, not the manifest's. |
+| 7 | low | confirmed (CRLF `next` → 500) | `_safe_next` rejects backslashes, control characters, and any value with a scheme/host; falls back to `/`. |
+| 8 | low | confirmed | `is_valid_session_id` now enforces the UUID **v4** version/variant nibbles, not just UUID shape. |
+| 9 | low | spec clarification | §10 now documents the home/preview asset `<style>`/`<script>` tags and the download route's generated-output assembly as the allowed exception to "page HTML lives in templates." |
+| 10 | low | partially addressed | Removed the dead route-level locals/imports introduced by the refactor; route modules are pyflakes-clean. Remaining pyflakes hits are (a) intentional route-registration/re-export imports in `word_to_wordpressV4.py`/`routes/__init__.py` and (b) pre-existing `core/` imports that are re-export chains or the lxml-availability probe — left as-is to avoid churn/breakage. (Lint is not a CI gate.) |
+
+### Files changed
+
+- `webapp.py` — startup + runtime guard against insecure auth secret.
+- `auth.py` — `session_owner_ok` requires a matching owner when auth is enabled.
+- `routes/downloads.py` — `_within_session` path containment; require real session; dead-local cleanup.
+- `routes/imports.py` — extracted-member allowlist cleanup; `keep_old` identity crosswalk; persist applied stable map; unused-import cleanup.
+- `core/styling.py` — `font_family` sanitization (`_sanitize_font_family`).
+- `routes/auth_routes.py` — hardened `_safe_next`.
+- `config.py` — UUID4 version/variant validation.
+- `routes/convert_flow.py` — dead-local/import cleanup.
+- `PROJECT_SPEC.md` — §10 asset-tag clarification; this section.
+
+### Tests added / updated
+
+- `tests/test_auth.py` — forged default-secret cookie is rejected; ownerless session not accessible when auth is enabled; the `with_auth` fixture now sets a real secret (required by the new guard).
+- `tests/test_routes_hardening.py` — UUID v4 rejection; download rejects out-of-session meta paths; `_safe_next` rejects CRLF/backslash/scheme; `font_family` cannot break out of the `<style>` block; the `docx_ok=False` test now seeds a real session.
+- `tests/test_e2e_workflow.py` — `keep_old` bundle import uses the identity crosswalk and persists the stable map (covers §17 #5 and #6).
+
+### Remaining known risks (unchanged from §16/§17)
+
+- **Real-document output quality** is still unvalidated by automated tests — the
+  highest product risk; run the actual WSU manuals through end-to-end and
+  human-verify before publishing.
+- **Live Railway runtime** (boot, `$PORT`, volume/persistence) was not validated
+  from this local pass — execute the §14 smoke check on the deploy.
+- **No rate limiting / conversion concurrency cap** — acceptable for the small
+  trusted team; revisit if exposure widens (§16).
+- **Lint is not fully clean** under `pyflakes` due to intentional
+  registration/re-export imports (finding 10); not a correctness or security
+  issue.
+
+### Go / no-go
+
+**Go for the stated scope** — small trusted team, single Railway instance, auth
+enabled with a strong `FLASK_SECRET_KEY`. The two §17 blockers (high-severity
+findings 1 and 2) are fixed and regression-tested, and the medium correctness/
+hardening items (3–6) are resolved. The standing caveats above are operational/
+product validation, not code defects.

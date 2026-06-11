@@ -61,7 +61,6 @@ from core.pandoc_wrapper import (
 from core.docx_processor import (
     compute_sha256,
     serialize_sequence_map,
-    deserialize_sequence_map,
     generate_stable_ref_id,
     has_tables_in_docx,
     sanitize_docx_styles,
@@ -555,7 +554,6 @@ def review(session_id):
     page_para_keys = para_keys[start_idx:end_idx]
     showing_start = start_idx + 1 if total_paras else 0
     showing_end = min(end_idx, total_paras)
-    old_crosswalk = session_data.get('old_crosswalk', {})  # Keep for compatibility
     manual_type = session_data.get('manual_type', 'chapter')
     filename = session_data.get('filename', '')
 
@@ -1145,7 +1143,6 @@ def do_convert(session_id):
     strip_docx_formatting = session_data.get('strip_docx_formatting', False)
     infer_heading_depth = session_data.get('infer_heading_depth', False)
     infer_style_map = session_data.get('infer_style_map') or {}
-    infer_sequence_map = deserialize_sequence_map(session_data.get('infer_sequence_map'))
     stable_heading_map = session_data.get('stable_heading_map') or {}
     heading_edits = session_data.get('heading_edits', {})
     theme_settings, theme_warnings = coerce_theme_settings(session_data.get('theme_settings'), manual_type)
@@ -1191,7 +1188,7 @@ def do_convert(session_id):
             logger.debug(f"Valid references: {valid_count}, Invalid/False positives: {len(reference_validations) - valid_count}")
             if reference_validations:
                 logger.debug(f"Sample validations (first 5): {dict(list(reference_validations.items())[:5])}")
-        except Exception as e:
+        except Exception:
             logger.exception("Could not load edit file")
     else:
         logger.debug(f"No edit file found at: {edit_file}")
@@ -1279,7 +1276,6 @@ def do_convert(session_id):
         # Save processed body
         out = session.export_html
         out.write_text(final_html, encoding='utf-8')
-        normalized = final_html
         
         # 3. Build Preview Wrappers
         # Set numbering mode: "preserve" keeps original numbers, "css-counters" applies CSS auto-numbering

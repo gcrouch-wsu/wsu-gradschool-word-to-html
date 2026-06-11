@@ -19,17 +19,31 @@ from werkzeug.security import generate_password_hash
 
 
 def main() -> None:
-    if len(sys.argv) > 1:
+    interactive = len(sys.argv) <= 1
+
+    def finish(code: int) -> None:
+        # Keep a double-clicked / auto-closing window open so the output is readable.
+        if interactive:
+            try:
+                input("\nPress Enter to close...")
+            except EOFError:
+                pass
+        sys.exit(code)
+
+    if not interactive:
         password = sys.argv[1]
     else:
         password = getpass.getpass("Password: ")
-        if password != getpass.getpass("Confirm: "):
-            print("Passwords did not match.", file=sys.stderr)
-            sys.exit(1)
+        if password != getpass.getpass("Confirm:  "):
+            print("\nPasswords did not match. Run it again.")
+            finish(1)
     if not password:
-        print("Empty password.", file=sys.stderr)
-        sys.exit(1)
+        print("\nEmpty password.")
+        finish(1)
+
+    print("\nYour password hash (copy the entire line below, starting with 'scrypt:'):\n")
     print(generate_password_hash(password))
+    finish(0)
 
 
 if __name__ == "__main__":

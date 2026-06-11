@@ -9,7 +9,7 @@ import os
 import shutil
 import time
 
-from flask import Flask, flash, redirect, request, url_for
+from flask import Flask, abort, flash, redirect, request, url_for
 from flask_login import current_user
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -60,12 +60,40 @@ login_manager.init_app(app)
 # Endpoints reachable without a session (probe, the login flow, static assets).
 _PUBLIC_ENDPOINTS = {"healthz", "login", "logout", "static"}
 
+# Secret keys that cannot safely sign login sessions: with a known/empty secret
+# anyone can forge a "logged in as X" cookie. Auth must not run under these.
+_INSECURE_SECRETS = {None, "", "dev-secret"}
+
+
+def auth_secret_is_insecure() -> bool:
+    """True if auth is enabled but FLASK_SECRET_KEY is unset/default."""
+    return auth_enabled() and app.secret_key in _INSECURE_SECRETS
+
+
+# Fail fast at startup: if accounts are configured via the environment but the
+# secret is the insecure default, the app must not serve (forgeable sessions).
+# (Tests enable auth in-process *after* import with a real secret, so this
+# import-time check does not affect them.)
+if auth_secret_is_insecure():
+    raise RuntimeError(
+        "Authentication is enabled (AUTH_OWNER_*/AUTH_USERS) but FLASK_SECRET_KEY "
+        "is unset or the insecure default 'dev-secret'. Set a strong, stable "
+        "FLASK_SECRET_KEY before enabling authentication — otherwise login "
+        "sessions can be forged."
+    )
+
 
 @app.before_request
 def _require_login():
     """Global auth gate. No-op when auth is disabled (no accounts configured)."""
     if not auth_enabled():
         return
+    # Defense in depth for the case where auth is turned on after startup
+    # (e.g. tests, or a runtime reconfigure) without a secure secret: refuse to
+    # honor any session rather than accept a forgeable one.
+    if auth_secret_is_insecure():
+        logger.error("Refusing request: auth enabled with an insecure FLASK_SECRET_KEY.")
+        abort(500)
     if request.endpoint in _PUBLIC_ENDPOINTS or request.endpoint is None:
         return
     if not current_user.is_authenticated:

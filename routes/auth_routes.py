@@ -1,5 +1,6 @@
 """Login / logout routes (Tier-1 auth)."""
 import logging
+from urllib.parse import urlsplit
 
 from flask import render_template, request, redirect, url_for, flash
 from flask_login import login_user, logout_user
@@ -11,10 +12,21 @@ logger = logging.getLogger(__name__)
 
 
 def _safe_next(target: str | None) -> str:
-    """Only allow same-app relative redirects (no scheme/host)."""
-    if target and target.startswith("/") and not target.startswith("//"):
-        return target
-    return url_for("index")
+    """Only allow a same-origin, relative redirect path.
+
+    Rejects absolute/scheme-relative URLs, backslashes (treated as `/` by some
+    browsers), and control characters (a CRLF would otherwise raise a 500 or
+    enable header injection at the redirect). Anything suspicious falls back to
+    the home page.
+    """
+    if not target or not target.startswith("/") or target.startswith("//"):
+        return url_for("index")
+    if "\\" in target or any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in target):
+        return url_for("index")
+    parts = urlsplit(target)
+    if parts.scheme or parts.netloc:  # not a bare local path
+        return url_for("index")
+    return target
 
 
 @app.route("/login", methods=["GET", "POST"])

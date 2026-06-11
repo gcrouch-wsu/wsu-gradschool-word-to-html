@@ -120,11 +120,13 @@ def current_uid() -> str | None:
 def session_owner_ok(session_data: dict) -> bool:
     """True if the current request may access this converter session.
 
-    Open when auth is disabled. When enabled, a session is accessible if it has
-    no recorded owner (created before auth, or by a tool path) or its owner
-    matches the signed-in user. This is the per-session isolation check.
+    Open when auth is disabled. When enabled, a session is accessible only if its
+    recorded owner matches the signed-in user. Ownerless sessions (no `owner`
+    field — e.g. created before auth was turned on, or a corrupt/planted session)
+    are NOT shared: they fail the check so one user can never reach another's
+    (or an unowned) session. This is the per-session isolation guarantee.
     """
     if not auth_enabled():
         return True
     owner = (session_data or {}).get("owner")
-    return owner is None or owner == current_uid()
+    return bool(owner) and owner == current_uid()

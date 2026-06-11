@@ -180,10 +180,24 @@ def coerce_theme_settings(
             s = str(val).strip().lower()
             allowed = ("auto", "left_all", "center_all", "right_all", "right_numeric", "auto_skip_first")
             settings[key] = s if s in allowed else "auto"
+        elif key == "font_family":
+            settings[key] = _sanitize_font_family(val, settings[key])
         else:
             settings[key] = val
 
     return _finalize_theme_settings(settings, warnings)
+
+
+# Characters allowed in a CSS font-family value (letters, digits, spaces,
+# commas, quotes, dots, hyphens, underscores). Everything else — notably
+# ; { } < > \ and newlines — is stripped so the value cannot break out of the
+# generated `<style>` block or the `--manual-font: ...;` declaration.
+_FONT_FAMILY_RE = re.compile(r"[^A-Za-z0-9 ,\"'._-]")
+
+
+def _sanitize_font_family(value, fallback: str) -> str:
+    cleaned = _FONT_FAMILY_RE.sub("", str(value or "")).strip().strip(",").strip()[:200]
+    return cleaned or fallback
 
 
 def _finalize_theme_settings(settings: dict, warnings: list[str]) -> tuple[dict, list[str]]:
@@ -316,7 +330,10 @@ def build_table_theme_css(settings: dict) -> str:
 def build_theme_css(settings: dict) -> str:
     """Generate dynamic CSS based on theme settings."""
     primary = settings.get("primary_color", "#8d0a0a")
-    font = settings.get("font_family", "sans-serif")
+    # Sanitize here too (not just in coerce_theme_settings): theme_settings read
+    # back from meta/session/manifest are passed straight in without re-coercion,
+    # and font_family is interpolated into the <style> block.
+    font = _sanitize_font_family(settings.get("font_family", "sans-serif"), "sans-serif")
 
     css = f"""
     :root {{

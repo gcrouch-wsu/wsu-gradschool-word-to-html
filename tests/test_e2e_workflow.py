@@ -230,6 +230,43 @@ def test_bundle_export_import_round_trip(client_nocsrf, fixture_docx_bytes):
 
 
 @pandoc_required
+def test_keep_old_bundle_import_uses_identity_crosswalk_and_persists_stable_map(
+    client_nocsrf, fixture_docx_bytes
+):
+    """A keep_old bundle must re-import with identity-crosswalk behavior (not
+    auto-match) and persist the stable map it actually applied."""
+    # Convert in keep_old mode (redirects straight to /review, not heading_review).
+    r = client_nocsrf.post(
+        "/convert",
+        data={"docx": (io.BytesIO(fixture_docx_bytes), "manual.docx"),
+              "toc_depth": "2", "mapping_mode": "keep_old"},
+        content_type="multipart/form-data",
+    )
+    sid1 = r.headers["Location"].rstrip("/").split("/")[-1]
+    sid2 = None
+    try:
+        client_nocsrf.get(f"/convert/{sid1}")  # produce artifacts + stable map
+        client_nocsrf.post(f"/review/{sid1}", data={"save_edits": "1", "page": "1"})
+        bundle = client_nocsrf.post(f"/export/{sid1}").data
+        r = client_nocsrf.post(
+            "/import_bundle",
+            data={"bundle": (io.BytesIO(bundle), "session.zip")},
+            content_type="multipart/form-data",
+        )
+        assert r.status_code == 302
+        sid2 = r.headers["Location"].rstrip("/").split("/")[-1]
+        sd = json.loads((PERSIST_DIR / sid2 / "session.json").read_text(encoding="utf-8"))
+        assert sd["mapping_mode"] == "keep_old"
+        # identity crosswalk: every old ref maps to itself
+        cw = sd.get("auto_crosswalk", {})
+        assert cw and all(k == v for k, v in cw.items()), "keep_old must use identity crosswalk"
+        # stable map persisted into the session (finding #6)
+        assert sd.get("stable_heading_map"), "imported session must persist the stable map"
+    finally:
+        _cleanup(sid1, *([sid2] if sid2 else []))
+
+
+@pandoc_required
 def test_import_html_starts_review_session(client_nocsrf, fixture_docx_bytes):
     """A downloaded fragment can be re-imported through the HTML path."""
     sid1, token, _ = _run_conversion(client_nocsrf, fixture_docx_bytes)

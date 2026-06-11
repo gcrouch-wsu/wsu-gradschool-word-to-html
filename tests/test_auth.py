@@ -23,6 +23,8 @@ B_EMAIL, B_PW = "bob@wsu.edu", "bob-pw-456"
 def with_auth():
     app.config["TESTING"] = True
     app.config["WTF_CSRF_ENABLED"] = False
+    saved_secret = app.secret_key
+    app.secret_key = "test-strong-secret-not-the-default"  # auth requires a real secret
     auth.configure_users({
         A_EMAIL: generate_password_hash(A_PW),
         B_EMAIL: generate_password_hash(B_PW),
@@ -31,6 +33,7 @@ def with_auth():
         yield
     finally:
         auth.configure_users({})  # back to disabled (env is empty in tests)
+        app.secret_key = saved_secret
         app.config["WTF_CSRF_ENABLED"] = True
         app.config["TESTING"] = False
 
@@ -85,6 +88,25 @@ def test_logout(with_auth):
     assert c.get("/").status_code == 302  # signed out again
 
 
+def test_ownerless_session_not_accessible_when_auth_enabled(with_auth):
+    """A session with no `owner` (legacy/corrupt/planted) must not be reachable
+    by any authenticated user when auth is enabled."""
+    sid = str(uuid.uuid4())
+    sd = SessionDir(sid, create=True)
+    sd.session_json.write_text(json.dumps({
+        # no "owner" key
+        "references": [], "new_headings": {}, "auto_crosswalk": {},
+        "approved_crosswalk": {}, "manual_type": "chapter",
+        "filename": "x.docx", "mapping_mode": "map_new", "html_import": False,
+    }), encoding="utf-8")
+    try:
+        c = app.test_client()
+        _login(c, A_EMAIL, A_PW)
+        assert c.get(f"/review/{sid}").status_code == 302, "ownerless session must be rejected"
+    finally:
+        shutil.rmtree(sd.root, ignore_errors=True)
+
+
 def test_session_ownership_isolation(with_auth):
     """A session owned by Alice is not reachable by Bob."""
     sid = str(uuid.uuid4())
@@ -110,3 +132,24 @@ def test_session_ownership_isolation(with_auth):
 def test_verify_credentials_is_case_insensitive_on_email(with_auth):
     assert auth.verify_credentials("ALICE@wsu.edu", A_PW) is not None
     assert auth.verify_credentials(A_EMAIL, "nope") is None
+
+
+def test_insecure_secret_with_auth_rejects_forged_cookie():
+    """With auth enabled and the default 'dev-secret', a forged login cookie
+    must NOT authenticate — the gate refuses to serve."""
+    app.config["TESTING"] = True
+    app.config["WTF_CSRF_ENABLED"] = False
+    saved = app.secret_key
+    app.secret_key = "dev-secret"  # the insecure default
+    auth.configure_users({A_EMAIL: generate_password_hash(A_PW)})
+    try:
+        c = app.test_client()
+        with c.session_transaction() as sess:
+            sess["_user_id"] = A_EMAIL  # forge "logged in as alice"
+        r = c.get("/")
+        assert r.status_code != 200, "forged default-secret cookie must not be honored"
+    finally:
+        auth.configure_users({})
+        app.secret_key = saved
+        app.config["WTF_CSRF_ENABLED"] = True
+        app.config["TESTING"] = False

@@ -6,6 +6,7 @@ unsafe URL schemes are not rendered clickable.
 import io
 import json
 import os
+from pathlib import Path
 import shutil
 import tempfile
 import uuid
@@ -71,6 +72,8 @@ def test_download_docx_reports_failed_export(client_nocsrf):
     session = SessionDir(sid, create=True)
     try:
         token = str(uuid.uuid4())
+        # A download requires a real session plus the token meta.
+        session.session_json.write_text(json.dumps({"filename": "x.docx"}), encoding="utf-8")
         meta = {"session_id": sid, "filename": "x.docx", "docx_ok": False}
         (session.root / f"{token}_meta.json").write_text(
             json.dumps(meta), encoding="utf-8"
@@ -100,6 +103,53 @@ def test_is_valid_session_id():
     assert is_valid_session_id(str(uuid.uuid4()))
     assert not is_valid_session_id("not-a-uuid")
     assert not is_valid_session_id("")
+    # UUID-shaped but not v4 must be rejected (version/variant nibbles enforced).
+    assert not is_valid_session_id("00000000-0000-0000-0000-000000000000")
+    assert not is_valid_session_id("11111111-1111-1111-1111-111111111111")
+    assert not is_valid_session_id("11111111-1111-3111-8111-111111111111")  # v3
+
+
+def test_download_rejects_meta_path_outside_session(client_nocsrf):
+    """The download route must not serve a file referenced by meta when that
+    path resolves outside the session directory (planted-meta arbitrary read)."""
+    sid = str(uuid.uuid4())
+    session = SessionDir(sid, create=True)
+    try:
+        session.session_json.write_text(json.dumps({"filename": "x.docx"}), encoding="utf-8")
+        token = str(uuid.uuid4())
+        external = str((PERSIST_DIR.parent / "outside_secret.txt"))
+        Path(external).write_text("SENSITIVE", encoding="utf-8")
+        for field, kind in [("docx_path", "docx"), ("manual_content_path", "standalone")]:
+            (session.root / f"{token}_meta.json").write_text(
+                json.dumps({field: external, "filename": "x", "docx_ok": True}),
+                encoding="utf-8",
+            )
+            r = client_nocsrf.get(f"/download/{sid}/{token}/{kind}", follow_redirects=False)
+            assert r.status_code == 302, f"{kind}: out-of-session path must not be served"
+            body = client_nocsrf.get(f"/download/{sid}/{token}/{kind}", follow_redirects=True).get_data(as_text=True)
+            assert "SENSITIVE" not in body
+        Path(external).unlink(missing_ok=True)
+    finally:
+        shutil.rmtree(session.root, ignore_errors=True)
+
+
+def test_safe_next_rejects_dangerous_redirects():
+    from routes.auth_routes import _safe_next
+    from word_to_wordpressV4 import app
+    with app.test_request_context():
+        assert _safe_next("/review/abc") == "/review/abc"
+        for bad in ("//evil.com", "https://evil.com", "/\\evil.com",
+                    "/x\r\nLocation: https://evil.com", "/x\x00", "\\\\evil"):
+            assert _safe_next(bad) == "/", f"should fall back to / for {bad!r}"
+
+
+def test_font_family_cannot_break_out_of_style_block():
+    from core.styling import coerce_theme_settings, build_theme_css
+    payload = "x;}</style><script>alert(1)</script><style>{"
+    ts, _ = coerce_theme_settings({"font_family": payload}, "chapter")
+    assert "</style>" not in build_theme_css(ts)
+    # Also when read straight from (attacker-influenced) meta without re-coercion:
+    assert "</style>" not in build_theme_css({"font_family": payload})
 
 
 # ---- Bundle-import manifest path validation ----

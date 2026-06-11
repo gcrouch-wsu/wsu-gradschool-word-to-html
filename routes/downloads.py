@@ -17,7 +17,7 @@ from flask import (
 )
 
 from webapp import app
-from auth import current_uid, session_owner_ok
+from auth import session_owner_ok
 from config import SessionDir, is_valid_session_id
 from services.session_state import load_session_data, save_session_data
 from core.html_processor import shift_heading_levels, build_manual_grid_block
@@ -32,15 +32,33 @@ from core.styling import (
 
 logger = logging.getLogger(__name__)
 
+def _within_session(session, path) -> bool:
+    """True only if `path` resolves inside this session's directory.
+
+    The download metadata is attacker-influenceable (a malicious bundle can
+    plant a {token}_meta.json), so any file path read from it must be confined
+    to the session root before it is opened.
+    """
+    if not path:
+        return False
+    try:
+        root = session.root.resolve()
+        resolved = Path(path).resolve()
+    except (OSError, ValueError):
+        return False
+    return resolved == root or root in resolved.parents
+
+
 @app.route("/download/<uuid:session_id>/<uuid:token>/<kind>", methods=["GET"])
 def download(session_id, token, kind):
     session_id = str(session_id)
     token = str(token)
     session = SessionDir(session_id)
+    session_data = load_session_data(session)
     meta_file = session.root / f"{token}_meta.json"
-    # Enforce per-session ownership: a download must belong to the signed-in
-    # user's session (no-op when auth is disabled).
-    if not meta_file.exists() or not session_owner_ok(load_session_data(session) or {}):
+    # Require a real session AND per-session ownership: a download must belong to
+    # the signed-in user's session (ownership is a no-op when auth is disabled).
+    if session_data is None or not meta_file.exists() or not session_owner_ok(session_data):
         flash("Download not found or expired.")
         return redirect(url_for("index"))
     try:
@@ -61,7 +79,7 @@ def download(session_id, token, kind):
             
     if kind in ("fragment", "fragment_css", "standalone"):
         manual_content_path = Path(meta.get("manual_content_path", "") or "")
-        if manual_content_path.exists():
+        if manual_content_path.exists() and _within_session(session, manual_content_path):
             normalized = manual_content_path.read_text(encoding='utf-8', errors='ignore')
             manual_type = meta.get("manual_type") or "chapter"
             toc_depth = meta.get("toc_depth") or 2
@@ -97,7 +115,7 @@ def download(session_id, token, kind):
             flash("DOCX export failed during conversion; the HTML outputs are unaffected. Re-run the conversion to retry.")
             return redirect(url_for("index"))
         docx_path = Path(meta.get("docx_path", ""))
-        if docx_path.exists():
+        if docx_path.exists() and _within_session(session, docx_path):
             return send_file(str(docx_path), as_attachment=True, download_name=f"{meta.get('filename', 'document')}_numbered.docx")
 
     if kind == "heading_map":
@@ -112,7 +130,6 @@ def download(session_id, token, kind):
 @app.route("/update_theme", methods=["POST"])
 def update_theme():
     session_id = request.form.get("session_id", "")
-    token = request.form.get("token", "")
     if not is_valid_session_id(session_id):
         flash("Missing or invalid session information.")
         return redirect(url_for("index"))
@@ -124,9 +141,7 @@ def update_theme():
         return redirect(url_for("index"))
 
     manual_type = session_data.get('manual_type', 'chapter')
-    toc_depth = session_data.get('toc_depth', 2)
-    numbering_mode = session_data.get('numbering_mode', 'css-counters')
-    
+
     # Update style panels state
     style_panels = session_data.get('style_panels', {"doc": True, "toc": False, "heading": False})
     style_panels["doc"] = request.form.get("doc_panel_open") == "1"
