@@ -1,7 +1,5 @@
 """External URL allowlisting for DOCX links and exported HTML anchors."""
 
-import re
-
 
 def is_safe_href(href: str) -> bool:
     """

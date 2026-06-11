@@ -4,7 +4,7 @@ A Flask web application that converts Word documents (DOCX) into WordPress-ready
 
 This README describes the intended workflow and local usage. It is **not** a substitute for production security review, threat modeling, or formal release sign-off.
 
-Phased hardening, deployment checklists, and sequencing of fixes are tracked by maintainers **outside this repository** (private notes or your organization’s process), not in files shipped with this clone.
+For the authoritative description of the architecture, module layout, security model, caching, design invariants, scope/non-goals, and the deployment/operational contract, see **`PROJECT_SPEC.md`**. Organization-specific release sign-off, secrets management, and threat modeling remain your own process.
 
 ## Features
 
@@ -28,7 +28,7 @@ Phased hardening, deployment checklists, and sequencing of fixes are tracked by 
 
 ### Install Pandoc
 
-Download **Pandoc 3.9.0.2** from https://github.com/jgm/pandoc/releases/tag/3.9.0.2 and ensure `pandoc` is on your PATH. The app checks for Pandoc at startup and will not run without it.
+Download **Pandoc 3.9.0.2** from https://github.com/jgm/pandoc/releases/tag/3.9.0.2 and ensure `pandoc` is on your PATH. The app checks for Pandoc at startup: running `python word_to_wordpressV4.py` exits immediately if Pandoc is missing. (Under Gunicorn the check runs on the first request and is logged rather than exiting.)
 
 Verify:
 ```bash
@@ -50,10 +50,13 @@ When a newer release is announced, review the release notes, upgrade your local 
 ### Install Python Dependencies
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt        # runtime dependencies (ranged)
+pip install -r requirements-dev.txt    # runtime + test dependencies (pytest)
 ```
 
-That installs Flask, Flask-WTF (CSRF), Bleach, python-docx, BeautifulSoup, lxml, Werkzeug, Markdown, Gunicorn, and pytest. On **Windows**, use **Python 3.12 or 3.13** if `lxml` fails to build on very new interpreters (prebuilt wheels lag).
+`requirements.lock.txt` pins the exact runtime versions the **Docker image** installs (reproducible builds, resolved for py3.12/manylinux). CI deliberately installs the ranged files instead, so an incompatible upstream release shows up there first. To bump dependencies: edit the ranges in `requirements.txt`, regenerate the lock (command in the lockfile header), run the tests, and commit both files together.
+
+The runtime set is Flask, Flask-WTF (CSRF), Flask-Login (auth), Bleach (+tinycss2 for inline-style sanitization), python-docx, BeautifulSoup, lxml, Werkzeug, Markdown, and Gunicorn. On **Windows**, use **Python 3.12 or 3.13** if `lxml` fails to build on very new interpreters (prebuilt wheels lag).
 
 > `lxml` is optional at runtime in some setups—BeautifulSoup can fall back to `html.parser`—but `requirements.txt` includes lxml for speed and consistency with CI/Docker.
 
@@ -63,7 +66,7 @@ That installs Flask, Flask-WTF (CSRF), Bleach, python-docx, BeautifulSoup, lxml,
 python -m pytest tests/ -q
 ```
 
-Optional warning filters for test output live in **`pytest.ini`** (e.g. Bleach CSS sanitizer notices).
+The same suite runs in GitHub Actions on every push and pull request (`.github/workflows/ci.yml`).
 
 ## Running the App
 
@@ -88,7 +91,7 @@ This companion tool is local-only in the current project scope. See `README_conf
 ### First-Time Conversion (no heading map)
 
 1. Upload your DOCX file
-2. Configure settings: manual type (Chapter/Section), TOC depth, numbering mode
+2. Configure settings: heading mapping mode (map to new numeric headings, or keep original), TOC depth, and whether to keep heading numbers in text. (Manual type — chapter vs. section — is detected automatically from the document.)
 3. Optionally check "Edit tables" to review table formatting
 4. Click Upload and process through the review screens (headings, references, tables)
 5. Click "Proceed with Conversion"
@@ -115,7 +118,7 @@ This companion tool is local-only in the current project scope. See `README_conf
 1. Add the **CSS** as site-level custom CSS (Appearance → Customize → Additional CSS, or a custom CSS plugin)
 2. Add the **JS** as either:
    - **Site-level JS** (no wrappers needed), or
-   - **Code snippet** — must be wrapped in `<script>` tags (see `C:\Python Projects\css_js\FM.js` for an example)
+   - **Code snippet** — must be wrapped in `<script>` tags
 3. Paste the **Fragment** HTML into a WordPress Custom HTML block
 4. WordPress strips `<input>`, `<style>`, and `<script>` tags from Custom HTML blocks — the JS includes a fallback that recreates the search input automatically
 5. **Fragment + CSS cannot work standalone in WordPress** — WordPress strips embedded `<style>` and `<script>` tags from Custom HTML blocks. CSS and JS must be added separately via site-level settings or code snippets as described above
@@ -123,7 +126,19 @@ This companion tool is local-only in the current project scope. See `README_conf
 ## File Structure
 
 ```
-word_to_wordpressV4.py          Main Flask app
+word_to_wordpressV4.py          Entry point (Gunicorn target: word_to_wordpressV4:app)
+webapp.py                       Flask app object, config, CSRF, login gate, lifecycle hooks
+auth.py                         Tier-1 auth: env accounts, Flask-Login, per-session ownership
+routes/
+  auth_routes.py                Login / logout
+  pages.py                      Home, instructions, /healthz
+  convert_flow.py               Upload, heading/reference/table review, conversion
+  downloads.py                  Artifact downloads, theme updates, bundle export
+  imports.py                    HTML import, session-bundle import
+  common.py                     Shared request-parsing helpers
+services/
+  session_state.py              session.json / edits.json load-save helpers
+  docx_session.py               Shared DOCX pipeline + canonical session_data builder
 docx_config_generator.py        Companion config generator
 config.py                       SessionDir, PERSIST_DIR, env-backed settings
 wordpress.css                   WordPress stylesheet (WCAG 2.1 AA)
@@ -139,6 +154,8 @@ core/
 utils/
   helpers.py                    roman_to_int, normalize_hex_color, clamp_number, sanitize_theme_id
   url_policy.py                 External href allowlist for export / DOCX links
+templates/                      Jinja templates (home, instructions, heading/reference/table review)
+scripts/                        Standalone maintainer utilities (see scripts/README.md)
 tests/                          Pytest suite (`python -m pytest tests/ -q`)
 ```
 
@@ -149,7 +166,9 @@ For local development, the defaults below are usable. For any deployed environme
 | Variable | Default | Purpose |
 |---|---|---|
 | `PERSIST_DIR` | System temp directory | Root for session storage |
-| `FLASK_SECRET_KEY` | `dev-secret` for local dev only | Flask session signing key; must be overridden in production |
+| `FLASK_SECRET_KEY` | `dev-secret` for local dev only | Flask session/login cookie signing key; must be overridden in production |
+| `AUTH_OWNER_EMAIL` / `AUTH_OWNER_PASSWORD` | unset | A single login account (plaintext password, hashed in memory at startup). Setting these turns authentication on. See **Authentication** below. |
+| `AUTH_USERS` | unset | Additional accounts as a comma/newline list of `email:password_hash`. Setting this turns authentication on. |
 | `SESSION_TTL_HOURS` | `48` | When greater than `0`, stale session directories are pruned on a throttled schedule in the main app; set `0` to disable |
 | `ZIP_MAX_UNCOMPRESSED_BYTES` / `ZIP_MAX_FILES` | Defaults in `config.py` | Caps bundle import before `extractall` |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
@@ -157,6 +176,29 @@ For local development, the defaults below are usable. For any deployed environme
 | `PANDOC_UPDATE_CHECK_ENABLED` | `1` | Set `0` to disable the weekly upstream-release check |
 | `PANDOC_UPDATE_CHECK_TTL_HOURS` | `168` | Cache duration for the upstream-release check (hours) |
 | `PANDOC_UPDATE_CHECK_TIMEOUT_SECONDS` | `3.0` | Network timeout for the upstream-release check |
+
+## Authentication
+
+The app ships with optional **Tier-1 authentication** (env-configured accounts; no database). It is **off by default** — with no accounts set, the app runs open, which is fine for local use. Set accounts to require login; this is the recommended baseline for any shared or Railway deployment.
+
+**Enable it** one of two ways (you can combine them):
+
+- **Quick single account** — set both:
+  ```
+  AUTH_OWNER_EMAIL=you@wsu.edu
+  AUTH_OWNER_PASSWORD=a-strong-password
+  ```
+- **Multiple accounts** — generate a hash per user and list them in `AUTH_USERS`:
+  ```bash
+  python scripts/make_password_hash.py        # prints a scrypt hash
+  ```
+  ```
+  AUTH_USERS="alice@wsu.edu:scrypt:...,bob@wsu.edu:scrypt:..."
+  ```
+
+When enabled, every page requires sign-in (except `/healthz` and the login page), passwords are scrypt-hashed, the login cookie is httpOnly/SameSite=Lax (and Secure when deployed), and each conversion session is **owned by the user who created it** — one user cannot open another's session.
+
+**Deployment notes:** set a strong, stable `FLASK_SECRET_KEY` (it signs the login cookie; if it changes, everyone is logged out). This Tier-1 model fits a **small trusted team on a single instance**. Self-service accounts, password reset, or campus SSO are deliberately out of scope — see `PROJECT_SPEC.md` §16 for the multi-user/SSO trajectory.
 
 ## Session Data
 
@@ -168,7 +210,7 @@ To clear all sessions: delete the `docx2html_wsumanual` directory in your temp f
 
 ### Heading Map (Permalink Stability)
 
-The heading map JSON maps heading content **signatures** (normalized heading text) to anchor IDs. When you re-convert an edited document with the previous heading map, headings whose **normalized text still matches** keep the same ID—this fixes the early “anchors jump every conversion” problem. WordPress URLs with `#anchors` therefore survive when heading wording is unchanged.
+The heading map JSON maps heading content **signatures** (normalized heading text) to anchor IDs — specifically `{signature: [ids in document order]}`, a list per signature so headings that share the same text each keep a distinct, stable anchor. When you re-convert an edited document with the previous heading map, headings whose **normalized text still matches** keep the same ID—this fixes the early “anchors jump every conversion” problem. WordPress URLs with `#anchors` therefore survive when heading wording is unchanged. (Older flat `{signature: id}` maps from earlier versions still upload and apply.)
 
 **Strict matching:** There is **no fuzzy** or approximate signature match. If you change heading text (or, with **Keep heading numbers in text**, change embedded numbers), the signature may change and the map may assign a **new** ID unless you update the map deliberately.
 
@@ -193,5 +235,5 @@ The crosswalk system converts old-style heading references (Roman numerals, lett
 | 405 Method Not Allowed on conversion | Clear browser cache — this was a fixed bug |
 | Search doesn't show on WordPress | Update the JS code snippet with the latest version from `wordpress.js` |
 | Tables not editable | Check "Edit tables" checkbox on the upload form before uploading |
-| Heading map not loading | Use the file picker (not just the paste box) in the Advanced section |
+| Heading map not loading | Attach the `.json` via the file picker, or paste its contents in the Advanced section — either works (if both are filled, the pasted text wins) |
 | Session data lost | Sessions live in temp — restart doesn't clear them, but OS cleanup might |

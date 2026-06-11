@@ -87,16 +87,16 @@ def build_heading_crosswalk_from_map(heading_map: dict, manual_type: str = "chap
     crosswalk = {}
     order_map = {}
 
-    print(f"DEBUG [build_crosswalk]: Building from heading_map with {len(heading_map)} entries")
+    logger.debug(f"[build_crosswalk]: Building from heading_map with {len(heading_map)} entries")
     if heading_map:
         sample_keys = list(heading_map.keys())[:10]
-        print(f"DEBUG [build_crosswalk]: Sample heading_map keys: {sample_keys}")
+        logger.debug(f"[build_crosswalk]: Sample heading_map keys: {sample_keys}")
 
     for idx, (old_ref, title) in enumerate(heading_map.items()):
         # Skip synthetic keys (un-numbered headings) - they'll get CSS counters automatically
         if old_ref.startswith("_h"):
             if idx < 10:
-                print(f"DEBUG [build_crosswalk]: Skipping un-numbered heading: '{title[:50]}'")
+                logger.debug(f"[build_crosswalk]: Skipping un-numbered heading: '{title[:50]}'")
             continue
 
         # Ensure prefix FIRST so normalization can handle spelled numbers like "Chapter One"
@@ -121,12 +121,12 @@ def build_heading_crosswalk_from_map(heading_map: dict, manual_type: str = "chap
         # Debug first few entries to see the transformation
         if debug_this:
             same = "WARNING SAME!" if old_with_prefix == predicted else "OK Different"
-            print(f"DEBUG [build_crosswalk #{idx}]: '{old_ref}' (title: '{title[:30]}...')")
-            print(f"  -> normalized: '{norm_old}'")
-            print(f"  -> with_prefix: '{old_with_prefix}'")
-            print(f"  -> predicted: '{predicted}' {same}")
+            logger.debug(f"[build_crosswalk #{idx}]: '{old_ref}' (title: '{title[:30]}...')")
+            logger.debug(f"  -> normalized: '{norm_old}'")
+            logger.debug(f"  -> with_prefix: '{old_with_prefix}'")
+            logger.debug(f"  -> predicted: '{predicted}' {same}")
 
-    print(f"DEBUG [build_crosswalk]: Built {len(crosswalk)} crosswalk entries")
+    logger.debug(f"[build_crosswalk]: Built {len(crosswalk)} crosswalk entries")
     return crosswalk, order_map
 
 def lookup_heading_title(ref: str, heading_map: dict, debug: bool = False) -> str:
@@ -147,7 +147,7 @@ def lookup_heading_title(ref: str, heading_map: dict, debug: bool = False) -> st
     for cand in candidates:
         if cand in heading_map and heading_map[cand]:
             if debug:
-                print(f"DEBUG [lookup_title]: Found title for '{ref}' using candidate '{cand}': '{heading_map[cand][:50]}...'")
+                logger.debug(f"[lookup_title]: Found title for '{ref}' using candidate '{cand}': '{heading_map[cand][:50]}...'")
             return heading_map[cand]
 
     norm = normalize_heading_ref(ref)
@@ -158,17 +158,17 @@ def lookup_heading_title(ref: str, heading_map: dict, debug: bool = False) -> st
         key_norm = normalize_heading_ref(key)
         if key_norm and (key_norm == norm or key_norm == norm_no_prefix):
             if debug:
-                print(f"DEBUG [lookup_title]: Found title for '{ref}' using normalized key '{key_norm}': '{title[:50]}...'")
+                logger.debug(f"[lookup_title]: Found title for '{ref}' using normalized key '{key_norm}': '{title[:50]}...'")
             return title
         key_no_prefix = re.sub(r'^(Chapter|Section)\s+', '', key_norm, flags=re.IGNORECASE)
         if key_no_prefix and (key_no_prefix == norm or key_no_prefix == norm_no_prefix):
             if debug:
-                print(f"DEBUG [lookup_title]: Found title for '{ref}' using normalized key no-prefix '{key_no_prefix}': '{title[:50]}...'")
+                logger.debug(f"[lookup_title]: Found title for '{ref}' using normalized key no-prefix '{key_no_prefix}': '{title[:50]}...'")
             return title
 
     if debug:
-        print(f"DEBUG [lookup_title]: No title found for '{ref}', tried: {candidates}")
-        print(f"DEBUG [lookup_title]: Sample heading_map keys: {list(heading_map.keys())[:5]}")
+        logger.debug(f"[lookup_title]: No title found for '{ref}', tried: {candidates}")
+        logger.debug(f"[lookup_title]: Sample heading_map keys: {list(heading_map.keys())[:5]}")
     return ""
 
 def find_heading_order_violations(html: str) -> list[dict]:
@@ -381,7 +381,7 @@ def scrape_heading_structure_from_html(html: str) -> dict:
                 }
                 order_idx += 1
 
-    print(f"DEBUG: Scraped {len(headings)} NEW headings from HTML")
+    logger.debug(f"Scraped {len(headings)} NEW headings from HTML")
     return headings
 
 def auto_match_old_to_new_references(old_references: list, new_structure: dict, manual_type: str = "chapter") -> dict:
@@ -393,9 +393,9 @@ def auto_match_old_to_new_references(old_references: list, new_structure: dict, 
     """
     crosswalk = {}
 
-    print(f"DEBUG [auto_match]: Matching {len(old_references)} references to {len(new_structure)} new headings")
+    logger.debug(f"[auto_match]: Matching {len(old_references)} references to {len(new_structure)} new headings")
     if new_structure:
-        print(f"DEBUG [auto_match]: Sample new_headings keys: {list(new_structure.keys())[:5]}")
+        logger.debug(f"[auto_match]: Sample new_headings keys: {list(new_structure.keys())[:5]}")
 
     for idx, ref in enumerate(old_references):
         old_ref_text = ref[2]  # Extract the reference string
@@ -413,7 +413,7 @@ def auto_match_old_to_new_references(old_references: list, new_structure: dict, 
             except ValueError:
                 num_val = roman_to_int(first_part)
             if num_val and num_val > 50:
-                print(f"DEBUG: Skipping auto-match for '{old_ref_text}' (unreasonably high leading number)")
+                logger.debug(f"Skipping auto-match for '{old_ref_text}' (unreasonably high leading number)")
                 continue
 
         # Convert OLD to predicted NEW
@@ -473,7 +473,7 @@ def auto_match_old_to_new_references(old_references: list, new_structure: dict, 
 
         if matched:
             crosswalk[old_ref_text] = matched
-            print(f"DEBUG: Auto-matched: '{old_ref_text}' -> '{matched}' (candidates: {candidates})")
+            logger.debug(f"Auto-matched: '{old_ref_text}' -> '{matched}' (candidates: {candidates})")
         else:
             # Validate the predicted reference before using it
             predicted_valid = True
@@ -485,7 +485,7 @@ def auto_match_old_to_new_references(old_references: list, new_structure: dict, 
                         if int(part) > 50:
                             predicted_valid = False
                             if idx < 10:
-                                print(f"DEBUG: Rejecting predicted '{predicted_new}' - contains unreasonably high number: {part}")
+                                logger.debug(f"Rejecting predicted '{predicted_new}' - contains unreasonably high number: {part}")
                             break
                     except ValueError:
                         pass  # Not a number, keep it
@@ -493,15 +493,15 @@ def auto_match_old_to_new_references(old_references: list, new_structure: dict, 
             if predicted_valid:
                 crosswalk[old_ref_text] = predicted_new
                 if idx < 10:
-                    print(f"DEBUG: Predicted (no heading match): '{old_ref_text}' -> '{predicted_new}' (candidates tried: {candidates})")
+                    logger.debug(f"Predicted (no heading match): '{old_ref_text}' -> '{predicted_new}' (candidates tried: {candidates})")
             else:
                 if idx < 10:
-                    print(f"DEBUG: Skipping '{old_ref_text}' - predicted value '{predicted_new}' is invalid")
+                    logger.debug(f"Skipping '{old_ref_text}' - predicted value '{predicted_new}' is invalid")
 
-    print(f"DEBUG [auto_match]: Built crosswalk with {len(crosswalk)} entries")
+    logger.debug(f"[auto_match]: Built crosswalk with {len(crosswalk)} entries")
     if crosswalk:
         sample_items = list(crosswalk.items())[:3]
-        print(f"DEBUG [auto_match]: Sample crosswalk: {sample_items}")
+        logger.debug(f"[auto_match]: Sample crosswalk: {sample_items}")
 
     return crosswalk
 
@@ -518,15 +518,15 @@ def convert_old_numbering_to_new(old_ref: str, debug: bool = False) -> str:
     match = re.match(r'^(Chapter|Section)\s+(.+?)(?:\s+[-\u2013\u2014:]|$)', old_ref, re.IGNORECASE)
     if not match:
         if debug:
-            print(f"DEBUG [convert]: No match for '{old_ref}'")
+            logger.debug(f"[convert]: No match for '{old_ref}'")
         return old_ref
 
     prefix = match.group(1)
     numbering = match.group(2).strip()
 
     if debug:
-        print(f"DEBUG [convert]: Input: '{old_ref}'")
-        print(f"DEBUG [convert]: Extracted prefix: '{prefix}', numbering: '{numbering}'")
+        logger.debug(f"[convert]: Input: '{old_ref}'")
+        logger.debug(f"[convert]: Extracted prefix: '{prefix}', numbering: '{numbering}'")
     # Handle spelled-out leading number (Chapter One)
     parts_spell = numbering.split('.')
     if parts_spell:
@@ -590,9 +590,9 @@ def convert_old_numbering_to_new(old_ref: str, debug: bool = False) -> str:
     result = f"{prefix} {new_numbering}"
 
     if debug:
-        print(f"DEBUG [convert]: Parts after split: {parts}")
-        print(f"DEBUG [convert]: Converted parts: {new_parts}")
-        print(f"DEBUG [convert]: Result: '{result}'")
+        logger.debug(f"[convert]: Parts after split: {parts}")
+        logger.debug(f"[convert]: Converted parts: {new_parts}")
+        logger.debug(f"[convert]: Result: '{result}'")
 
     return result
 

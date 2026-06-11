@@ -16,15 +16,24 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, request, render_template_string, send_file, redirect, url_for, flash, jsonify
-from werkzeug.utils import secure_filename
+from flask import Flask, request, render_template_string, send_file, redirect, url_for, flash
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from docx import Document
 from docx.shared import RGBColor, Pt
 from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
-from docx.oxml.ns import qn
+
+# Shared helpers — single canonical implementations live in core/ and utils/
+from utils.helpers import _int_to_roman, _int_to_letters
+from core.docx_processor import (
+    is_heading_style,
+    serialize_sequence_map,
+    _extract_numbering_defs,
+    _extract_heading_prefix_tokens,
+    _classify_heading_token,
+)
+from core.html_processor import _normalized
 
 # ------------------------------ Flask setup ------------------------------
 
@@ -700,66 +709,6 @@ def build_preview_data(config, analysis):
         "mapping_mode": config.get("conversion", {}).get("mapping_mode", "map_new"),
     }
 
-def is_heading_style(paragraph):
-    """Check if a paragraph uses a heading style."""
-    style_name = paragraph.style.name.lower()
-    return any(style_name.startswith(f"heading {i}") or style_name == f"heading{i}" 
-               for i in range(1, 10))
-
-def get_heading_level(paragraph):
-    """Get heading level from paragraph style."""
-    style_name = paragraph.style.name.lower()
-    for i in range(1, 10):
-        if style_name.startswith(f"heading {i}") or style_name == f"heading{i}":
-            return i
-    return None
-
-def _extract_numbering_defs(doc: Document):
-    """Extract numbering definitions from DOCX."""
-    numbering_part = getattr(doc.part, "numbering_part", None)
-    if numbering_part is None:
-        return {}, {}
-    
-    try:
-        root = numbering_part.element
-    except Exception:
-        return {}, {}
-    
-    abstract_nums = {}
-    num_to_abstract = {}
-    
-    for abstract in root.findall(qn("w:abstractNum")):
-        abs_id = abstract.get(qn("w:abstractNumId"))
-        if abs_id is None:
-            continue
-        levels = {}
-        for lvl in abstract.findall(qn("w:lvl")):
-            ilvl_raw = lvl.get(qn("w:ilvl"))
-            try:
-                ilvl = int(ilvl_raw)
-            except Exception:
-                continue
-            fmt_el = lvl.find(qn("w:numFmt"))
-            fmt = fmt_el.get(qn("w:val")) if fmt_el is not None else "decimal"
-            text_el = lvl.find(qn("w:lvlText"))
-            lvl_text = text_el.get(qn("w:val")) if text_el is not None else f"%{ilvl + 1}."
-            start_el = lvl.find(qn("w:start"))
-            try:
-                start_val = int(start_el.get(qn("w:val"))) if start_el is not None else 1
-            except Exception:
-                start_val = 1
-            levels[ilvl] = {"numFmt": fmt, "lvlText": lvl_text, "start": start_val}
-        abstract_nums[abs_id] = levels
-    
-    for num in root.findall(qn("w:num")):
-        num_id = num.get(qn("w:numId"))
-        abs_el = num.find(qn("w:abstractNumId"))
-        abs_id = abs_el.get(qn("w:val")) if abs_el is not None else None
-        if num_id is not None and abs_id is not None:
-            num_to_abstract[num_id] = abs_id
-    
-    return abstract_nums, num_to_abstract
-
 def _get_paragraph_numpr(p):
     """Get numbering properties from paragraph or its style."""
     ppr = p._p.pPr
@@ -797,77 +746,23 @@ def _format_list_number(value, fmt, level):
         return _int_to_letters(value, upper=True)
     return str(value)
 
-def _int_to_roman(num):
-    """Convert integer to Roman numeral."""
-    if num <= 0:
-        return ""
-    mapping = [
-        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
-        (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
-    ]
-    result = ""
-    for value, symbol in mapping:
-        while num >= value:
-            result += symbol
-            num -= value
-    return result
-
-def _int_to_letters(num, upper=True):
-    """Convert integer to letter (A, B, C, ... or a, b, c, ...)."""
-    if num <= 0:
-        return ""
-    result = ""
-    n = num - 1
-    while n >= 0:
-        result = chr(ord('A' if upper else 'a') + (n % 26)) + result
-        n = n // 26 - 1
-    return result if result else ('A' if upper else 'a')
-
-_HEADING_INFER_TOKEN = r'(?:\d+|[IVXLCDMivxlcdm]{1,6}|[A-Z]{1,3}|[a-z]{1,3})'
-_HEADING_INFER_RE = re.compile(
-    r'^\s*(?:(?i:Chapter|Section)\s+)?'
-    r'(' + _HEADING_INFER_TOKEN + r'(?:\.\s*' + _HEADING_INFER_TOKEN + r'){1,5})\b'
-)
 _CHAPTER_WORDS = (
     "One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|Eleven|Twelve|"
     "Thirteen|Fourteen|Fifteen|Sixteen|Seventeen|Eighteen|Nineteen|Twenty"
 )
+# Deliberately extends the canonical core/html_processor._HEADING_PREFIX_RE:
+# the generator also strips spelled-out chapter words ("Chapter One") and
+# bare letter prefixes without dots ("A Title") for its style previews.
 _HEADING_PREFIX_RE = re.compile(
     r"^\s*(?:"
-    r"(?i:(?:Chapter|Section))\s+(?:[IVXLCDM\d]+|(?:" + _CHAPTER_WORDS + r"))(?:\.[A-Z\d]+)*(?:\s*[:.\---])?\s+|"
-    r"(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})(?:[.\s]+(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})){1,5}\.?\s+(?:[:.\---]\s*)?|"
-    r"(?i:[IVXLCDM]+)\.(?:[A-Z]{1,3}|[a-z]{1,3})(?:\.\d+){0,3}\.?\s+(?:[:.\---]\s*)?|"
-    r"(?i:[IVXLCDM]+)(?:\.\d+){0,3}\.?\s+(?:[:.\---]\s*)?|"
-    r"(?:[A-Z]{1,3}|[a-z]{1,3})(?:[.)])?\s+(?:[:.\---]\s*)?|"
-    r"\d+(?:\.\d+){0,3}(?:[.)])?\s+(?:[:.\---]\s*)?"
+    r"(?i:(?:Chapter|Section))\s+(?:[IVXLCDM\d]+|(?:" + _CHAPTER_WORDS + r"))(?:\.[A-Z\d]+)*(?:\s*[:.–—\-])?\s+|"
+    r"(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})(?:[.\s]+(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})){1,5}\.?\s+(?:[:.–—\-]\s*)?|"
+    r"(?i:[IVXLCDM]+)\.(?:[A-Z]{1,3}|[a-z]{1,3})(?:\.\d+){0,3}\.?\s+(?:[:.–—\-]\s*)?|"
+    r"(?i:[IVXLCDM]+)(?:\.\d+){0,3}\.?\s+(?:[:.–—\-]\s*)?|"
+    r"(?:[A-Z]{1,3}|[a-z]{1,3})(?:[.)])?\s+(?:[:.–—\-]\s*)?|"
+    r"\d+(?:\.\d+){0,3}(?:[.)])?\s+(?:[:.–—\-]\s*)?"
     r")"
 )
-_WHITESPACE_EQUIV = {
-    '\u00a0': ' ',
-    '\u2009': ' ', '\u2002': ' ', '\u2003': ' ', '\u200a': ' ',
-    '\u202f': ' ', '\u205f': ' ', '\u3000': ' '
-}
-_ZERO_WIDTH = {'\u200b', '\u200c', '\u200d'}
-
-def _norm_char(c: str) -> str:
-    if c in _ZERO_WIDTH:
-        return ''
-    return _WHITESPACE_EQUIV.get(c, c)
-
-def _normalized(text: str) -> str:
-    return ''.join(_norm_char(c) for c in (text or ""))
-
-def _extract_heading_prefix_tokens(text: str) -> list[str]:
-    if not text:
-        return []
-    normalized = _normalized(text).strip()
-    match = _HEADING_INFER_RE.match(normalized)
-    if not match:
-        return []
-    seq = match.group(1)
-    return [part.strip() for part in seq.split('.') if part.strip()]
-
 def _strip_heading_prefix_for_preview(text: str) -> str:
     if not text:
         return ""
@@ -896,27 +791,6 @@ def _extract_style_map_tokens(text: str) -> list[str]:
     prefix = re.sub(r'^(?:Chapter|Section)\s+', '', prefix, flags=re.IGNORECASE).strip()
     prefix = re.sub(r'[:.\-\s]+$', '', prefix).strip()
     return [part for part in re.split(r'[.\s]+', prefix) if part]
-
-def _classify_heading_token(token: str) -> str:
-    if not token:
-        return ""
-    if token.isdigit():
-        return "decimal"
-    if re.fullmatch(r'[ivxlcdm]+', token):
-        return "roman_lower"
-    if re.fullmatch(r'[IVXLCDM]+', token):
-        return "roman_upper"
-    if token.isalpha():
-        return "alpha_upper" if token.isupper() else "alpha_lower"
-    return ""
-
-def serialize_sequence_map(sequence_map: dict) -> list[dict]:
-    items = []
-    for seq, level in (sequence_map or {}).items():
-        if not seq or not isinstance(seq, (tuple, list)):
-            continue
-        items.append({"sequence": list(seq), "level": int(level) if level is not None else None})
-    return items
 
 def build_infer_maps_from_headings(headings: list[dict]) -> tuple[dict, dict]:
     style_map = {}
@@ -1023,7 +897,7 @@ def analyze_docx(docx_path):
             }
         
         # Check for heading
-        level = get_heading_level(paragraph)
+        level = is_heading_style(paragraph)
         if level:
             level_key = str(level)
             if level_key not in heading_samples:
@@ -2607,7 +2481,7 @@ EDITOR_TEMPLATE = """
 # ------------------------------ Main Execution ------------------------------
 
 if __name__ == "__main__":
-    print(f"DOCX Configuration Generator starting...")
+    print("DOCX Configuration Generator starting...")
     print(f"Persist directory: {PERSIST_DIR}")
     app.run(debug=True, port=5000, host="127.0.0.1")
 

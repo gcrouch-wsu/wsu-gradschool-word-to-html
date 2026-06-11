@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # Install the same pinned Pandoc the Dockerfile uses so version-policy
+      # behavior matches production. Keep in lockstep with PANDOC_PINNED_VERSION
+      # in config.py and ARG PANDOC_VERSION in the Dockerfile.
+      - name: Install Pandoc
+        run: |
+          PANDOC_VERSION=3.9.0.2
+          wget -q "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          sudo dpkg -i "pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          pandoc --version | head -n 1
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest tests/ -q

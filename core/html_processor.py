@@ -21,8 +21,18 @@ except ImportError:
 
 try:
     import bleach
+    try:
+        from bleach.css_sanitizer import CSSSanitizer
+        # Only the inline CSS the pipeline itself emits: list markers on <ol>
+        # and per-column alignment on table cells. Everything else is stripped.
+        _CSS_SANITIZER = CSSSanitizer(
+            allowed_css_properties=["list-style-type", "text-align"]
+        )
+    except ImportError:  # tinycss2 missing — bleach drops style values entirely
+        _CSS_SANITIZER = None
 except ImportError:  # pragma: no cover
     bleach = None  # type: ignore
+    _CSS_SANITIZER = None
 
 from utils.url_policy import is_safe_href, sanitize_external_href
 
@@ -106,17 +116,22 @@ def sanitize_manual_html_fragment(html: str) -> str:
         attributes=_BLEACH_ATTRS,
         protocols=['http', 'https', 'mailto'],
         strip=True,
+        css_sanitizer=_CSS_SANITIZER,
     )
 
 
+# comprehensive prefix matcher (on normalized text)
+# IMPORTANT: Must require whitespace after the prefix so "I.A.3.Duties" is not
+# consumed as "I.A.3.D"; the trailing separator class includes en/em dashes
+# (–, —) so "Chapter 2 – Title" strips cleanly.
 _HEADING_PREFIX_RE = re.compile(
     r"^\s*(?:"
-    r"(?i:(?:Chapter|Section))\s+[IVXLCDM\d]+(?:\.[A-Z\d]+)*(?:\s*[:.\\-])?\s+|"
-    r"(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})(?:[.\s]+(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})){1,5}\.?\s+(?:[:.\\-]\s*)?|"
-    r"(?i:[IVXLCDM]+)\.(?:[A-Z]{1,3}|[a-z]{1,3})(?:\.\d+){0,3}\.?\s+(?:[:.\\-]\s*)?|"
-    r"(?i:[IVXLCDM]+)(?:\.\d+){0,3}\.?\s+(?:[:.\\-]\s*)?|"
-    r"(?:[A-Z]{1,3}|[a-z]{1,3})\.\s+(?:[:.\\-]\s*)?|"
-    r"\d+(?:\.\d+){0,3}(?:[.)])?\s+(?:[:.\\-]\s*)?"
+    r"(?i:(?:Chapter|Section))\s+[IVXLCDM\d]+(?:\.[A-Z\d]+)*(?:\s*[:.–—\-])?\s+|"
+    r"(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})(?:[.\s]+(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})){1,5}\.?\s+(?:[:.–—\-]\s*)?|"
+    r"(?i:[IVXLCDM]+)\.(?:[A-Z]{1,3}|[a-z]{1,3})(?:\.\d+){0,3}\.?\s+(?:[:.–—\-]\s*)?|"
+    r"(?i:[IVXLCDM]+)(?:\.\d+){0,3}\.?\s+(?:[:.–—\-]\s*)?|"
+    r"(?:[A-Z]{1,3}|[a-z]{1,3})\.\s+(?:[:.–—\-]\s*)?|"
+    r"\d+(?:\.\d+){0,3}(?:[.)])?\s+(?:[:.–—\-]\s*)?"
     r")"
 )
 
@@ -339,8 +354,13 @@ def extract_body(html: str) -> str:
     return html
 
 def save_stable_heading_map(session_id: str, final_html: str) -> None:
+    # Map each heading signature to the LIST of ids it carries in document
+    # order. Storing a list (not a single id) keeps the map lossless when two
+    # headings share normalized text — a flat {sig: id} dropped all but the
+    # last, which made re-applying the map non-idempotent (ids drifting
+    # overview -> overview-1 -> overview-1-1 on every reconversion).
     soup = BeautifulSoup(final_html, _HTML_PARSER)
-    heading_map: dict[str, str] = {}
+    heading_map: dict[str, list[str]] = {}
     for heading in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
         hid = (heading.get('id') or '').strip()
         if not hid:
@@ -348,7 +368,7 @@ def save_stable_heading_map(session_id: str, final_html: str) -> None:
         text = heading.get_text().strip()
         sig = normalize_heading_signature(text)
         if sig and hid:
-            heading_map[sig] = hid
+            heading_map.setdefault(sig, []).append(hid)
     session = SessionDir(session_id)
     session.stable_map_json.write_text(
         json.dumps(heading_map, indent=2, ensure_ascii=False),
@@ -423,6 +443,7 @@ def add_heading_ids(soup_or_html, overwrite_existing: bool = True, stable_map: d
 
 def _add_heading_ids_impl(soup: BeautifulSoup, overwrite_existing: bool = True, stable_map: dict | None = None) -> None:
     used_ids = set()
+    sig_occurrence: dict[str, int] = {}  # how many headings of each signature seen so far
     for heading in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
         text = heading.get_text().strip()
         existing_id = (heading.get('id') or '').strip()
@@ -440,20 +461,31 @@ def _add_heading_ids_impl(soup: BeautifulSoup, overwrite_existing: bool = True, 
             used_ids.add(slug)
             continue
 
-        # Branch 2: stable map lookup by content signature
+        # Branch 2: stable map lookup by content signature. The map stores a
+        # list of ids per signature (document order); consume the Nth id for
+        # the Nth heading that shares a signature so duplicate-text headings
+        # keep distinct, stable anchors instead of all claiming the first id.
         if stable_map:
             sig = normalize_heading_signature(text)
-            if sig and sig in stable_map:
-                slug = stable_map[sig]
-                if slug in used_ids:
-                    base_slug = slug
-                    counter = 1
-                    while slug in used_ids:
-                        slug = f"{base_slug}-{counter}"
-                        counter += 1
-                heading['id'] = slug
-                used_ids.add(slug)
-                continue
+            mapped = stable_map.get(sig) if sig else None
+            if isinstance(mapped, str):  # tolerate legacy flat {sig: id} maps
+                mapped = [mapped]
+            if mapped:
+                occ = sig_occurrence.get(sig, 0)
+                sig_occurrence[sig] = occ + 1
+                slug = mapped[occ] if occ < len(mapped) else ""
+                if slug:
+                    if slug in used_ids:
+                        base_slug = slug
+                        counter = 1
+                        while slug in used_ids:
+                            slug = f"{base_slug}-{counter}"
+                            counter += 1
+                    heading['id'] = slug
+                    used_ids.add(slug)
+                    continue
+                # More occurrences than the map recorded: fall through to
+                # generate a fresh slug rather than reusing an exhausted id.
 
         # Branch 3: generate slug from heading text
         slug = re.sub(r'^(?:Chapter|Section)\s+[\dIVXLCDM]+(?:\.[A-Za-z\d]+)*\s*(?:--|[-:.])\s*', '', text, flags=re.IGNORECASE)
@@ -1041,18 +1073,21 @@ def sanitize_docx_ids_for_export(html: str) -> str:
 
 def parse_heading_id_map_json(raw_text: str) -> dict:
     """
-    Parse a heading-map JSON file. Accepts three input shapes:
+    Parse a heading-map JSON file. Accepts these input shapes:
       1. Structured: {"version": 1, "entries": [{"signature": ..., "id": ...}, ...]}
       2. Bare list:  [{"signature": ..., "id": ...}, ...]
-      3. Flat dict:  {"<signature>": "<id>", ...}
-    Returns a dict {normalized_signature: heading_id}.
+      3. Flat dict (legacy): {"<signature>": "<id>", ...}
+      4. Flat dict (current): {"<signature>": ["<id>", "<id>", ...], ...}
+    Returns {normalized_signature: [ids in document order]}. Duplicate-text
+    headings are preserved as multiple ids per signature; an ``{"ids": [...]}``
+    entry or a list value is honored, and a scalar id is coerced to a 1-list.
     """
     if not raw_text:
         return {}
     try:
         data = json.loads(raw_text)
     except Exception as exc:
-        print(f"DEBUG: Failed to parse heading map JSON: {exc}")
+        logger.warning(f"Failed to parse heading map JSON: {exc}")
         return {}
     entries = []
     if isinstance(data, dict) and "entries" in data and isinstance(data["entries"], list):
@@ -1062,14 +1097,24 @@ def parse_heading_id_map_json(raw_text: str) -> dict:
     elif isinstance(data, dict):
         for key, value in data.items():
             entries.append({"signature": key, "id": value})
-    heading_map = {}
+
+    def _ids_from(entry: dict) -> list[str]:
+        raw = entry.get("ids")
+        if raw is None:
+            raw = entry.get("id")
+        if isinstance(raw, list):
+            return [str(x).strip() for x in raw if str(x).strip()]
+        s = (str(raw).strip() if raw is not None else "")
+        return [s] if s else []
+
+    heading_map: dict[str, list[str]] = {}
     for entry in entries:
         if not isinstance(entry, dict):
             continue
         signature = normalize_heading_signature(entry.get("signature") or "")
-        heading_id = (entry.get("id") or "").strip()
-        if signature and heading_id:
-            heading_map[signature] = heading_id
+        ids = _ids_from(entry)
+        if signature and ids:
+            heading_map.setdefault(signature, []).extend(ids)
     return heading_map
 
 

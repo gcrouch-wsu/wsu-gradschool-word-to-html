@@ -1,0 +1,27 @@
+# Pinned runtime dependencies for reproducible builds (used by the Dockerfile).
+# Generated from requirements.txt resolved for the Docker target platform:
+#   pip download -r requirements.txt -d .lockwheels --python-version 312 --platform manylinux2014_x86_64 --only-binary=:all:
+# To upgrade: edit the ranges in requirements.txt, regenerate this file with the
+# command above, run the test suite, and commit both files together.
+flask-login==0.6.3
+beautifulsoup4==4.15.0
+bleach==6.4.0
+blinker==1.9.0
+click==8.4.1
+colorama==0.4.6; platform_system == "Windows"
+flask==3.1.3
+flask-wtf==1.3.0
+gunicorn==22.0.0
+itsdangerous==2.2.0
+jinja2==3.1.6
+lxml==6.1.1
+markdown==3.10.2
+markupsafe==3.0.3
+packaging==26.2
+python-docx==1.2.0
+soupsieve==2.8.4
+tinycss2==1.5.1
+typing-extensions==4.15.0
+webencodings==0.5.1
+werkzeug==3.1.8
+wtforms==3.2.2

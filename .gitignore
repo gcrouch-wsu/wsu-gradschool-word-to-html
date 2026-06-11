@@ -6,8 +6,3 @@ __pycache__/
 *.docx
 *.heading-map.json
 archive/
-static/
-templates/
-
-# Local maintainer build / handoff notes (not distributed with the repo)
-PROJECT_HANDOFF.md

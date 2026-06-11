@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>Table Review</title>
+<style>
+body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; background: #f7f7f8; }
+.container { max-width: 1120px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+h1 { color: #981E32; margin-top: 0; }
+label { font-weight: 600; display: block; margin: 12px 0 6px; }
+select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.checkbox { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.actions { margin-top: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.btn { background: #981E32; color: #fff; border: 0; padding: 10px 16px; border-radius: 8px; cursor: pointer; text-decoration: none; }
+.btn.secondary { background: #4b5563; }
+.small { color: #555; font-size: 14px; }
+.preview-panel { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px 20px; background: #fafafa; width: 100%; max-width: 100%; box-sizing: border-box; margin-bottom: 28px; }
+.preview-panel h2 { margin-top: 0; font-size: 1.1rem; color: #374151; }
+.preview-panel .manual-grid { width: 100%; max-width: 100%; box-sizing: border-box; }
+.preview-panel .manual { width: 100%; max-width: 100%; box-sizing: border-box; }
+#table-preview-root { min-height: 80px; width: 100%; max-width: 100%; }
+#table-preview-root table { width: 100%; max-width: 100%; }
+.preview-status { font-size: 13px; color: #64748b; min-height: 1.3em; margin-bottom: 8px; }
+.controls-section { width: 100%; max-width: 100%; }
+.wsu-swatches { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; max-width: 100%; }
+.wsu-swatch { width: 26px; height: 26px; border-radius: 4px; border: 1px solid #bbb; cursor: pointer; padding: 0; flex-shrink: 0; box-sizing: border-box; }
+.wsu-swatch:hover { filter: brightness(1.08); border-color: #981E32; }
+.wsu-swatch:focus { outline: 2px solid #981E32; outline-offset: 2px; }
+</style>
+<style id="wp-preview-base">{{ wp_css_text|safe }}</style>
+<style id="table-preview-theme"></style>
+</head>
+<body>
+<div class="container">
+  <h1>Table Review</h1>
+  <p class="small">Choose common table formatting rules before conversion. These settings are written into the exported CSS (after the base manual stylesheet). The preview updates as you change options.</p>
+  {% if detected_cols %}<p class="small" style="margin:0 0 12px 0;"><strong>Detected:</strong> The first table in your document has <strong>{{ detected_cols }}</strong> columns (alignment defaults still use &ldquo;Automatic&rdquo; unless you choose otherwise).</p>{% endif %}
+  <aside class="preview-panel" aria-label="Live table preview">
+    <h2>Live preview</h2>
+    <p class="small" style="margin-top:0;">Sample table (not your document). Styling matches export; cell alignment uses the same rules as conversion.</p>
+    <div id="preview-status" class="preview-status" aria-live="polite"></div>
+    <div class="manual-grid" data-toc-depth="2" data-manual-type="{{ manual_type }}" data-numbering-mode="css-counters" data-theme="manual">
+      <main class="manual" id="table-preview-root"></main>
+    </div>
+  </aside>
+  <div class="controls-section">
+  <form id="table-review-form" method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="row">
+      {% for col, label in [('table_col1_align', 'Column 1 alignment'), ('table_col2_align', 'Column 2 alignment'), ('table_col3_align', 'Column 3 alignment'), ('table_coln_align', 'Column 4+ alignment')] %}
+      <div>
+        <label for="{{ col }}">{{ label }}</label>
+        <select id="{{ col }}" name="{{ col }}">
+          <option value="auto" {{ 'selected' if not theme_settings.get(col) }}>Automatic (converter)</option>
+          <option value="left" {{ 'selected' if theme_settings.get(col) == 'left' }}>Left</option>
+          <option value="center" {{ 'selected' if theme_settings.get(col) == 'center' }}>Center</option>
+          <option value="right" {{ 'selected' if theme_settings.get(col) == 'right' }}>Right</option>
+        </select>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <div>
+        <label for="table_header_align">Header row (<code>&lt;thead&gt;</code>) alignment</label>
+        <select id="table_header_align" name="table_header_align">
+          <option value="auto" {{ 'selected' if not theme_settings.get('table_header_align') }}>Same as body columns</option>
+          <option value="left" {{ 'selected' if theme_settings.get('table_header_align') == 'left' }}>Left</option>
+          <option value="center" {{ 'selected' if theme_settings.get('table_header_align') == 'center' }}>Center</option>
+          <option value="right" {{ 'selected' if theme_settings.get('table_header_align') == 'right' }}>Right</option>
+        </select>
+      </div>
+      <div>
+        <label for="table_layout_mode">Column width mode</label>
+        <select id="table_layout_mode" name="table_layout_mode">
+          <option value="auto" {{ 'selected' if theme_settings.get('table_layout_mode') == 'auto' }}>Auto</option>
+          <option value="fixed" {{ 'selected' if theme_settings.get('table_layout_mode') == 'fixed' }}>Fixed</option>
+        </select>
+      </div>
+      <div>
+        <label for="table_block_align">Table width / horizontal position</label>
+        <select id="table_block_align" name="table_block_align">
+          <option value="full" {{ 'selected' if theme_settings.get('table_block_align', 'full') == 'full' }}>Full width</option>
+          <option value="center" {{ 'selected' if theme_settings.get('table_block_align', 'full') == 'center' }}>Centered (fit content)</option>
+          <option value="left" {{ 'selected' if theme_settings.get('table_block_align', 'full') == 'left' }}>Left (fit content)</option>
+        </select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <div>
+        <label for="table_header_bg">Header background</label>
+        <input id="table_header_bg" name="table_header_bg" type="color" value="{{ theme_settings.get('table_header_bg') }}">
+        {{ sw_bg|safe }}
+      </div>
+      <div>
+        <label for="table_header_color">Header text color</label>
+        <input id="table_header_color" name="table_header_color" type="color" value="{{ theme_settings.get('table_header_color') }}">
+        {{ sw_hc|safe }}
+      </div>
+      <div class="checkbox" style="align-items:flex-end;">
+        <input id="table_header_bold" name="table_header_bold" type="checkbox" {{ 'checked' if theme_settings.get('table_header_bold') }}>
+        <label for="table_header_bold">Header bold</label>
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <div>
+        <label for="table_border_color">Border color</label>
+        <input id="table_border_color" name="table_border_color" type="color" value="{{ theme_settings.get('table_border_color') }}">
+        {{ sw_bc|safe }}
+      </div>
+      <div>
+        <label for="table_border_width">Border width (px)</label>
+        <input id="table_border_width" name="table_border_width" type="number" step="0.5" value="{{ theme_settings.get('table_border_width') }}">
+      </div>
+      <div>
+        <label for="table_border_style">Border style</label>
+        <select id="table_border_style" name="table_border_style">
+          <option value="solid" {{ 'selected' if theme_settings.get('table_border_style') == 'solid' }}>Solid</option>
+          <option value="dashed" {{ 'selected' if theme_settings.get('table_border_style') == 'dashed' }}>Dashed</option>
+          <option value="dotted" {{ 'selected' if theme_settings.get('table_border_style') == 'dotted' }}>Dotted</option>
+          <option value="none" {{ 'selected' if theme_settings.get('table_border_style') == 'none' }}>None</option>
+        </select>
+      </div>
+      <div>
+        <label for="table_cell_padding">Cell padding (px)</label>
+        <input id="table_cell_padding" name="table_cell_padding" type="number" step="1" value="{{ theme_settings.get('table_cell_padding') }}">
+      </div>
+      <div>
+        <label for="table_row_stripe_color">Stripe color</label>
+        <input id="table_row_stripe_color" name="table_row_stripe_color" type="color" value="{{ theme_settings.get('table_row_stripe_color') }}">
+        {{ sw_sc|safe }}
+      </div>
+      <div class="checkbox" style="align-items:flex-end;">
+        <input id="table_row_stripe" name="table_row_stripe" type="checkbox" {{ 'checked' if theme_settings.get('table_row_stripe') }}>
+        <label for="table_row_stripe">Row striping</label>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="submit" class="btn">Continue to conversion</button>
+      <button type="submit" name="back" value="1" class="btn secondary">Back to references</button>
+    </div>
+  </form>
+  </div>
+</div>
+<script>
+(function() {
+  const form = document.getElementById("table-review-form");
+  const styleEl = document.getElementById("table-preview-theme");
+  const root = document.getElementById("table-preview-root");
+  const status = document.getElementById("preview-status");
+  const url = "{{ url_for('table_review_preview', session_id=session_id) }}";
+  let timer;
+  function payload() {
+    const data = {};
+    for (const el of form.elements) {
+      if (!el.name || el.type === "submit" || el.type === "button") continue;
+      if (el.type === "checkbox") {
+        data[el.name] = el.checked ? "on" : "";
+        continue;
+      }
+      data[el.name] = el.value;
+    }
+    return data;
+  }
+  async function refresh() {
+    status.textContent = "Updating…";
+    try {
+      const csrf = document.querySelector('meta[name="csrf-token"]');
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrf ? csrf.getAttribute("content") : "",
+        },
+        body: JSON.stringify(payload()),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        status.textContent = "Preview could not be loaded.";
+        return;
+      }
+      styleEl.textContent = j.css;
+      root.innerHTML = j.table_html;
+      status.textContent = "";
+    } catch (e) {
+      status.textContent = "Preview unavailable.";
+    }
+  }
+  function schedule() {
+    clearTimeout(timer);
+    timer = setTimeout(refresh, 150);
+  }
+  form.addEventListener("input", schedule);
+  form.addEventListener("change", schedule);
+  document.querySelector(".container").addEventListener("click", function(ev) {
+    const b = ev.target.closest(".wsu-swatch");
+    if (!b) return;
+    ev.preventDefault();
+    const tid = b.getAttribute("data-target");
+    const inp = document.getElementById(tid);
+    if (!inp) return;
+    inp.value = b.getAttribute("data-hex");
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+    inp.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  refresh();
+})();
+</script>
+</body>
+</html>

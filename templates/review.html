@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>Review Crosswalk - WSU Manual Converter</title>
+<style>
+body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; background: #f7f7f8; }
+.container { max-width: 1200px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+h1 { color: #981E32; margin-top: 0; }
+h2 { color: #333; margin-top: 24px; border-bottom: 2px solid #ddd; padding-bottom: 8px; }
+.crosswalk-table { width: 100%; border-collapse: collapse; margin: 16px 0; table-layout: auto; }
+.crosswalk-table th, .crosswalk-table td { padding: 10px; text-align: left; border: 1px solid #ddd; vertical-align: top; }
+.crosswalk-table th { background: #f5f5f5; font-weight: 600; }
+.crosswalk-table tr:nth-child(even) { background: #fafafa; }
+/* Reference columns: wider, no wrap, monospace */
+.crosswalk-table td:nth-child(1), .crosswalk-table td:nth-child(3) {
+    white-space: nowrap;
+    font-family: monospace;
+    min-width: 150px;
+    max-width: 250px;
+}
+.crosswalk-table th:nth-child(1), .crosswalk-table th:nth-child(3) {
+    min-width: 150px;
+    max-width: 250px;
+}
+/* Title columns: allow wrapping, normal font */
+.crosswalk-table td:nth-child(2), .crosswalk-table td:nth-child(4) {
+    word-wrap: break-word;
+    word-break: break-word;
+    max-width: 300px;
+}
+.references-list { margin: 16px 0; }
+.reference-item { padding: 12px; margin: 8px 0; background: #fff7ed; border-left: 4px solid #f59e0b; border-radius: 4px; }
+.reference-item.invalid { background: #fee; border-left-color: #dc2626; opacity: 0.7; }
+.reference-text { font-family: monospace; background: #fff; padding: 4px 8px; border-radius: 4px; display: inline-block; margin: 4px 0; }
+.reference-review-item.ref-collapsed { background: #f1f5f9; border: 1px dashed #cbd5e1; padding: 6px !important; margin: 6px 0 !important; }
+.reference-review-item.ref-collapsed .ref-details { display: none; }
+.reference-review-item.ref-collapsed .ref-summary { margin-bottom: 0; }
+.skip-badge { display: none; margin-left: 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; background: #64748b; color: #fff; padding: 2px 6px; border-radius: 999px; }
+.reference-review-item.ref-collapsed .skip-badge { display: inline-flex; align-items: center; }
+.highlight { background: yellow; padding: 2px 4px; font-weight: 600; }
+.validation-checkbox { margin-bottom: 8px; padding: 8px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; }
+.validation-checkbox.invalid { background: #fef2f2; border-color: #fca5a5; }
+.validation-checkbox label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
+.validation-checkbox input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+.actions { margin-top: 24px; padding-top: 24px; border-top: 2px solid #ddd; }
+button { background: #981E32; color: white; border: 0; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; }
+button:hover { background: #7a1728; }
+.info { background: #e0f2fe; border-left: 4px solid #0284c7; padding: 12px; margin: 16px 0; border-radius: 4px; }
+.flash-messages { margin: 16px 0; }
+.flash-message { padding: 12px 16px; margin: 8px 0; border-radius: 8px; border-left: 4px solid; }
+.flash-message.success { background: #d1fae5; border-left-color: #10b981; color: #065f46; }
+.flash-message.error { background: #fee2e2; border-left-color: #ef4444; color: #991b1b; }
+.flash-message.info { background: #dbeafe; border-left-color: #3b82f6; color: #1e40af; }
+.debug-panel { background: #f3f4f6; border: 2px solid #9ca3af; padding: 12px; margin: 16px 0; border-radius: 8px; font-family: monospace; font-size: 12px; }
+.debug-panel summary { cursor: pointer; font-weight: 600; color: #374151; }
+.debug-panel pre { margin: 8px 0; overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Review Crosswalk and References</h1>
+<p class="small">Workflow: validate references, save, then proceed to export.</p>
+
+{% with messages = get_flashed_messages() %}
+  {% if messages %}
+    <div class="flash-messages">
+    {% for message in messages %}
+      <div class="flash-message success">{{ message }}</div>
+    {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<div class="info">
+<strong>File:</strong> {{ filename or 'Unknown' }}<br>
+<strong>Manual Type:</strong> {{ manual_type|title }}<br>
+<strong>References Found:</strong> {{ references_count }}<br>
+<strong>Review Page:</strong> {{ page }} of {{ total_pages }} ({{ showing_start }}-{{ showing_end }} of {{ total_paras }} paragraphs)<br>
+<strong>Auto-Matched OLD&rarr;NEW:</strong> {{ auto_crosswalk_count }}<br>
+<strong>NEW Headings Available:</strong> {{ headings_count }}<br>
+<strong>Previously Saved:</strong> {{ existing_validations_count }} validations ({{ valid_loaded }} valid, {{ invalid_loaded }} invalid)<br>
+<strong>HTML Import:</strong> {{ 'Yes' if html_import else 'No' }}<br>
+{% if html_import %}<strong>Linked References Detected:</strong> {{ linked_ref_count }}<br><strong>Rebuild Links:</strong> {{ 'Yes' if rebuild_links else 'No' }}{% endif %}
+</div>
+
+<details class="debug-panel">
+<summary>&#128027; Debug Info (Click to expand)</summary>
+<p><strong>Session ID:</strong> {{ session_id }}</p>
+<p><strong>Edit File:</strong> {{ edit_file_name }}</p>
+<p><strong>Edit File Exists:</strong> {{ 'Yes' if edit_file_exists else 'No' }}</p>
+<p><strong>Loaded Validations Sample:</strong></p>
+<pre>{{ validations_sample }}</pre>
+<p><strong>Loaded Edits Sample:</strong></p>
+<pre>{{ edits_sample }}</pre>
+<p><strong>Headings Sample (first 5):</strong></p>
+<pre>{{ headings_sample }}</pre>
+<p><em>Open browser console (F12) and click "Save Edits" to see form data being submitted.</em></p>
+</details>
+
+<h2>Internal References Found</h2>
+<p>The following references to sections/chapters were found in the document body.</p>
+<div class="info" style="background: #fef3c7; border-left-color: #f59e0b;">
+<strong>Instructions:</strong>
+<ol style="margin: 8px 0; padding-left: 20px;">
+<li><strong>Review:</strong> Check the box for VALID chapter/section references (e.g., "Chapter 1.D" &rarr; "Chapter 1.4")</li>
+<li><strong>Skip non-links:</strong> Use "Skip linking" for acronyms or citations that should not link (e.g., "D.V.M", "Ph.D", "M.S.").</li>
+<li><strong>Edit if needed:</strong> Use Link text to correct the auto-match if needed</li>
+<li><strong>Save frequently:</strong> Click "Save Edits" to persist your progress - you can come back later!</li>
+<li><strong>Filter reviewed:</strong> Use the "Hide Reviewed Items" button below to focus on unreviewed references</li>
+<li><strong>External URLs:</strong> Links detected in the paragraph are listed for verification. Use the External URL field to add or correct links to other manuals.</li>
+</ol>
+Only validated references (with checkboxes checked) will create links in the final document.
+</div>
+
+<div style="margin: 16px 0; padding: 12px; background: #dbeafe; border-radius: 8px; border-left: 4px solid #3b82f6;">
+<strong>Progress:</strong> <span id="reviewProgress">Loading...</span><br>
+<button type="button" id="toggleReviewed" onclick="toggleReviewedItems()" style="margin-top: 8px; background: #3b82f6; color: white; border: 0; padding: 8px 16px; border-radius: 6px; cursor: pointer;">
+Hide Reviewed Items
+</button>
+<span id="filterStatus" style="margin-left: 12px; font-style: italic; color: #1e40af;"></span>
+</div>
+
+<form method="POST" id="reviewForm">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<input type="hidden" name="page" value="{{ page }}">
+{% if html_import %}<div class="info" style="background: #eef2ff; border-left-color: #6366f1;">
+<strong>HTML Import Options:</strong><br>
+<label style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+  <input type="checkbox" name="rebuild_links" id="rebuild_links" {{ 'checked' if rebuild_links }}>
+  <span>Rebuild internal links (remove existing section/chapter anchors before applying new links)</span>
+</label>
+<small style="color: #4b5563; display: block; margin-top: 6px;">When unchecked, existing internal links are preserved and shown read-only for verification.</small>
+</div>{% endif %}
+<div class="references-list">
+{% for para in paragraphs %}
+    <div class="reference-item">
+    <strong>Paragraph {{ para.para_number }}:</strong><br>
+    <div class="reference-text">{{ para.highlighted_text }}</div>
+    {% if para.external_links %}
+        <div style="margin-top: 8px; padding: 8px; background: #eef2ff; border-left: 3px solid #6366f1; border-radius: 4px;">
+            <strong style="color: #3730a3;">External URLs in this paragraph:</strong>
+            <ul style="margin: 6px 0 0 18px;">{% for href in para.external_links %}<li><a href="{{ href }}" target="_blank" rel="noopener noreferrer">{{ href }}</a></li>{% endfor %}</ul>
+        </div>
+    {% endif %}
+    {% if para.docx_links %}
+        <div style="margin-top: 8px; padding: 8px; background: #fef2f2; border-left: 3px solid #ef4444; border-radius: 4px;">
+            <strong style="color: #991b1b;">DOCX links in this paragraph:</strong>
+            <ul style="margin: 6px 0 0 18px;">
+            {%- for item in para.docx_links %}
+                <li>{% if item.href %}<a href="{{ item.href }}" target="_blank" rel="noopener noreferrer">{{ item.label }}</a>{% else %}<span>{{ item.label }}</span>{% endif %}{% if item.bad %}<span style="margin-left:6px;color:#b91c1c;font-weight:600;">Bad link</span>{% endif %}</li>
+            {%- endfor %}
+            </ul>
+        </div>
+    {% endif %}
+    <div style="margin-top: 12px;">
+    {% for ref in para.refs %}
+        <div style="margin: 8px 0; padding: 8px; background: #f9f9f9; border-radius: 4px;"
+             class="ref-item-{{ ref.ref_id }} reference-review-item{{ ' ref-collapsed' if ref.is_ignored }}{{ ' ref-readonly' if ref.is_read_only }}"
+             data-ref-id="{{ ref.ref_id }}"
+             data-auto-target="{{ ref.auto_target_full }}"
+             data-old-ref="{{ ref.old_ref }}"
+             data-is-ignored="{{ 'true' if ref.is_ignored else 'false' }}"
+             data-review-status="{{ ref.review_status }}"
+             data-is-valid="{{ 'true' if (ref.is_valid and not ref.is_ignored) else 'false' }}">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-size: 12px; color: #6b7280;">Reference #{{ ref.ref_id }}</span>
+                <span style="display: inline-flex; align-items: center; gap: 6px;">
+                    <span class="skip-badge" id="skip_badge_{{ ref.ref_id }}">Skipped</span>
+                    <span style="font-size: 12px; font-weight: 600; color: {{ ref.review_badge_color }};">{{ ref.review_indicator }}</span>
+                </span>
+            </div>
+            <div class="ref-summary" style="margin-bottom: 8px; padding: 8px; background: #fff; border-left: 3px solid #f59e0b; border-radius: 4px;">
+                <div>
+                    <strong style="color: #92400e;">Old reference (from text):</strong><br>
+                    <code style="background: #fef3c7; padding: 2px 6px; border-radius: 3px;">{{ ref.old_ref }}</code>
+                </div>
+                {% if ref.is_read_only %}<div class="small" style="margin-top:6px;color:#475569;">Linked in HTML (read-only unless Rebuild is enabled).</div>{% endif %}
+                {% if not ref.auto_match_found %}<div class="small" style="margin-top:6px;color:#b45309;">No internal match found. Add an external URL or skip linking.</div>{% endif %}
+            </div>
+
+            <div class="validation-checkbox" style="margin-top: 6px; background: #eef2ff; border-color: #c7d2fe;">
+                <label>
+                    <input type="checkbox"
+                           name="ref_ignore_{{ ref.ref_id }}"
+                           id="ref_ignore_{{ ref.ref_id }}"
+                           value="1"
+                           {{ 'checked' if ref.is_ignored }} {{ 'disabled' if ref.is_read_only }}>
+                    <span>Skip linking (not a real reference)</span>
+                </label>
+            </div>
+            <div class="ref-details">
+                <div style="margin-bottom: 8px; padding: 8px; background: #fff; border-left: 3px solid #10b981; border-radius: 4px;">
+                    <strong style="color: #065f46;">Auto-matched new:</strong><br>
+                    <code style="background: #d1fae5; padding: 2px 6px; border-radius: 3px;">{{ ref.full_new_heading }}</code>
+                </div>
+                <div class="validation-checkbox {{ ref.validation_class }}">
+                    <label>
+                        <input type="checkbox"
+                               name="ref_valid_{{ ref.ref_id }}"
+                               id="ref_valid_{{ ref.ref_id }}"
+                               value="1"
+                               {{ 'checked' if ref.checked }} {{ 'disabled' if ref.is_read_only }}>
+                        <span>This is a valid chapter/section reference</span>
+                    </label>
+                </div>
+            <div style="margin-bottom: 8px;">
+                <label for="ref_target_{{ ref.ref_id }}" style="display: block; margin-bottom: 4px; font-weight: 600;">Link target (select new heading to link to):</label>
+                <select id="ref_target_{{ ref.ref_id }}"
+                        name="ref_target_{{ ref.ref_id }}"
+                        {{ 'disabled' if ref.is_read_only }}
+                        style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 13px;">
+                    <option value="">-- Select NEW heading to link to --</option>
+                    {% for full in dropdown_headings %}
+                    <option value="{{ full }}" {{ 'selected' if full == ref.selected_target }}>{{ full }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label for="ref_edit_{{ ref.ref_id }}" style="display: block; margin-bottom: 4px; font-weight: 600;">Link text (optional):</label>
+                <input type="text"
+                       id="ref_edit_{{ ref.ref_id }}"
+                       name="ref_edit_{{ ref.ref_id }}"
+                       value="{{ ref.current_value }}"
+                       placeholder="Leave blank to use the selected link text, or enter custom link text"
+                       style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace;"
+                       {{ 'readonly' if ref.is_read_only }}>
+                <small style="color: #666; display: block; margin-top: 4px;">If left blank, the selected link text (or the auto-match) will be used.</small>
+            </div>
+            <div style="margin-top: 10px;">
+                <label for="ref_external_{{ ref.ref_id }}" style="display: block; margin-bottom: 4px; font-weight: 600;">External URL (optional):</label>
+                <input type="text"
+                       id="ref_external_{{ ref.ref_id }}"
+                       name="ref_external_{{ ref.ref_id }}"
+                       value="{{ ref.external_value }}"
+                       placeholder="https://example.com/manual"
+                       style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace;"
+                       {{ 'readonly' if ref.is_read_only }}>
+                <small style="color: #666; display: block; margin-top: 4px;">If set, this external link is used instead of the internal link target.</small>
+            </div>
+            <script>
+            document.getElementById('ref_valid_{{ ref.ref_id }}').addEventListener('change', function() {
+                const parent = document.querySelector('.ref-item-{{ ref.ref_id }}').parentElement;
+                const vbox = this.closest('.validation-checkbox');
+                if (this.checked) {
+                    parent.classList.remove('invalid');
+                    vbox.classList.remove('invalid');
+                } else {
+                    parent.classList.add('invalid');
+                    vbox.classList.add('invalid');
+                }
+            });
+            (function() {
+                const ignoreBox = document.getElementById('ref_ignore_{{ ref.ref_id }}');
+                const validBox = document.getElementById('ref_valid_{{ ref.ref_id }}');
+                const targetSelect = document.getElementById('ref_target_{{ ref.ref_id }}');
+                const editInput = document.getElementById('ref_edit_{{ ref.ref_id }}');
+                const externalInput = document.getElementById('ref_external_{{ ref.ref_id }}');
+                const container = document.querySelector('.ref-item-{{ ref.ref_id }}');
+                if (ignoreBox && ignoreBox.hasAttribute('disabled')) {
+                    return;
+                }
+                function targetLabel() {
+                    if (!targetSelect) return '';
+                    if (!targetSelect.value) return '';
+                    const option = targetSelect.options[targetSelect.selectedIndex];
+                    const text = option ? option.text : targetSelect.value;
+                    return (text.split(' - ')[0] || '').trim();
+                }
+                function syncTargetToOverride(force) {
+                    if (!targetSelect || !editInput) return;
+                    if (ignoreBox && ignoreBox.checked) return;
+                    const selected = targetSelect.value || '';
+                    if (!force && editInput.value.trim()) {
+                        return;
+                    }
+                    if (!selected) {
+                        editInput.value = '';
+                        return;
+                    }
+                    editInput.value = targetLabel();
+                }
+                function syncIgnoreState() {
+                    if (container) {
+                        container.classList.toggle('ref-collapsed', ignoreBox.checked);
+                    }
+                    if (ignoreBox.checked) {
+                        validBox.checked = false;
+                        targetSelect.style.pointerEvents = 'none';
+                        targetSelect.style.opacity = '0.6';
+                        editInput.readOnly = true;
+                        editInput.style.opacity = '0.6';
+                        externalInput.readOnly = true;
+                        externalInput.style.opacity = '0.6';
+                        targetSelect.setAttribute('aria-disabled', 'true');
+                        editInput.setAttribute('aria-disabled', 'true');
+                        externalInput.setAttribute('aria-disabled', 'true');
+                    } else {
+                        targetSelect.style.pointerEvents = '';
+                        targetSelect.style.opacity = '';
+                        editInput.readOnly = false;
+                        editInput.style.opacity = '';
+                        externalInput.readOnly = false;
+                        externalInput.style.opacity = '';
+                        targetSelect.removeAttribute('aria-disabled');
+                        editInput.removeAttribute('aria-disabled');
+                        externalInput.removeAttribute('aria-disabled');
+                    }
+                }
+                function applyAutoMatch() {
+                    if (!validBox.checked) return;
+                    if (targetSelect && !targetSelect.value) {
+                        const autoTarget = container ? container.getAttribute('data-auto-target') : '';
+                        if (autoTarget) {
+                            targetSelect.value = autoTarget;
+                        }
+                    }
+                    if (editInput && !editInput.value.trim()) {
+                        editInput.value = targetLabel();
+                    }
+                }
+                ignoreBox.addEventListener('change', syncIgnoreState);
+                validBox.addEventListener('change', applyAutoMatch);
+                targetSelect.addEventListener('change', function() { syncTargetToOverride(true); });
+                syncIgnoreState();
+                syncTargetToOverride(false);
+                applyAutoMatch();
+            })();
+            </script>
+            </div>
+        </div>
+    {% endfor %}
+    </div></div>
+{% endfor %}
+{% if total_pages > 1 %}<p><em>Page {{ page }} of {{ total_pages }}. Use Previous/Next to move between pages.</em></p>{% endif %}
+</div>
+
+<div class="actions" style="display: flex; gap: 12px; align-items: center;">
+<button type="submit" name="save_edits" style="background: #0284c7;" onclick="debugForm(event, 'save_edits')">Save Edits</button>
+<button type="submit" name="prev_page" style="background: #64748b;" {{ 'disabled' if page <= 1 }}>Save &amp; Previous</button>
+<button type="submit" name="next_page" style="background: #64748b;" {{ 'disabled' if page >= total_pages }}>Save &amp; Next</button>
+<button type="submit" name="proceed" style="background: #981E32;" onclick="debugForm(event, 'proceed')">Proceed with Conversion</button>
+</div>
+</form>
+<script>
+function debugForm(event, action) {
+    const form = document.getElementById('reviewForm');
+    const formData = new FormData(form);
+    console.log('=== FORM SUBMISSION DEBUG ===');
+    console.log('Action:', action);
+
+    let checkedCount = 0;
+    let uncheckedCount = 0;
+    let editCount = 0;
+    let targetCount = 0;
+
+    for (let [key, value] of formData.entries()) {
+        if (key.startsWith('ref_valid_')) {
+            checkedCount++;
+            console.log('✓ Checked:', key, '=', value);
+        } else if (key.startsWith('ref_edit_')) {
+            if (value.trim()) {
+                editCount++;
+                console.log('✏️ Edit:', key, '=', value.substring(0, 30));
+            }
+        } else if (key.startsWith('ref_target_')) {
+            if (value.trim()) {
+                targetCount++;
+                console.log('🔗 Target:', key, '=', value.substring(0, 30));
+            }
+        }
+    }
+
+    // Count all checkboxes to find unchecked ones
+    const allCheckboxes = document.querySelectorAll('input[type="checkbox"][name^="ref_valid_"]');
+    uncheckedCount = allCheckboxes.length - checkedCount;
+
+    console.log('Summary: ' + checkedCount + ' checked, ' + uncheckedCount + ' unchecked, ' + editCount + ' edits, ' + targetCount + ' targets');
+    console.log('=== END DEBUG ===');
+
+    // Don't prevent submission
+    return true;
+}
+</script>
+<script>
+// Debug: Show checkbox status on page load
+window.addEventListener('DOMContentLoaded', function() {
+    console.log('=== PAGE LOAD DEBUG ===');
+    const allCheckboxes = document.querySelectorAll('input[type="checkbox"][name^="ref_valid_"]');
+    const checkedCheckboxes = document.querySelectorAll('input[type="checkbox"][name^="ref_valid_"]:checked');
+    console.log('Total checkboxes on page:', allCheckboxes.length);
+    console.log('Pre-checked checkboxes:', checkedCheckboxes.length);
+
+    checkedCheckboxes.forEach(cb => {
+        console.log('  - ' + cb.name + ' is checked');
+    });
+
+    if (allCheckboxes.length === 0) {
+        console.warn('WARNING: No checkboxes found on page! References may not be rendering.');
+    }
+
+    // Add change listeners to all checkboxes for debugging
+    allCheckboxes.forEach(cb => {
+        cb.addEventListener('change', function(e) {
+            console.log('Checkbox changed:', e.target.name, 'checked:', e.target.checked);
+        });
+    });
+
+    console.log('=== END PAGE LOAD DEBUG ===');
+
+    // Update progress counter on page load
+    updateProgressCounter();
+});
+
+// Toggle hiding reviewed items (only those marked valid/checked)
+let showingReviewedItems = true;
+function toggleReviewedItems() {
+    showingReviewedItems = !showingReviewedItems;
+    const reviewedItems = document.querySelectorAll('.reference-review-item[data-is-valid="true"]');
+    const button = document.getElementById('toggleReviewed');
+    const statusSpan = document.getElementById('filterStatus');
+
+    reviewedItems.forEach(item => {
+        item.style.display = showingReviewedItems ? '' : 'none';
+    });
+
+    // Hide entire paragraph blocks if all their valid refs are hidden
+    const paragraphBlocks = document.querySelectorAll('.reference-item');
+    paragraphBlocks.forEach(block => {
+        const targetRefs = Array.from(block.querySelectorAll('.reference-review-item[data-is-valid="true"]'));
+        if (targetRefs.length === 0) {
+            block.style.display = ''; // nothing to hide in this block
+            return;
+        }
+        const anyVisible = targetRefs.some(r => r.style.display !== 'none');
+        block.style.display = anyVisible || showingReviewedItems ? '' : 'none';
+    });
+
+    if (showingReviewedItems) {
+        button.textContent = 'Hide Reviewed Items';
+        statusSpan.textContent = '';
+    } else {
+        button.textContent = 'Show All Items';
+        statusSpan.textContent = '(Showing only unreviewed items)';
+    }
+
+    updateProgressCounter();
+}
+
+// Update progress counter
+function updateProgressCounter() {
+    const allItems = document.querySelectorAll('.reference-review-item');
+    const reviewedItems = document.querySelectorAll('.reference-review-item[data-review-status="reviewed"]');
+    const validItems = document.querySelectorAll('.reference-review-item[data-is-valid="true"]');
+    const skippedItems = document.querySelectorAll('.reference-review-item[data-is-ignored="true"]');
+    const unreviewedItems = document.querySelectorAll('.reference-review-item[data-review-status="unreviewed"]');
+    const autoMatchedItems = Array.from(allItems).filter(item => {
+        const target = item.getAttribute('data-auto-target') || '';
+        return target.trim().length > 0;
+    });
+
+    const total = allItems.length;
+    const reviewed = reviewedItems.length;
+    const valid = validItems.length;
+    const skipped = skippedItems.length;
+    const autoMatched = autoMatchedItems.length;
+    const unreviewed = unreviewedItems.length;
+
+    const progressSpan = document.getElementById('reviewProgress');
+    progressSpan.innerHTML = `
+        <strong>${reviewed} of ${total} reviewed</strong>
+        (${valid} valid references, ${skipped} skipped, ${autoMatched} auto-matched, ${unreviewed} not yet reviewed)
+    `;
+
+    console.log('Progress:', {total, reviewed, valid, skipped, autoMatched, unreviewed});
+}
+</script>
+<p style="margin-top: 12px; color: #666; font-size: 14px;">
+<strong>Note:</strong> Click "Save Edits" frequently to save your progress. Your corrections persist and will be applied automatically on future conversions of this document.
+</p>
+</div>
+</body>
+</html>

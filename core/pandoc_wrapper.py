@@ -39,6 +39,25 @@ def run_pandoc(input_path: Path, output_path: Path, reference_doc: Path | None =
         raise
 
 
+def run_pandoc_html_to_docx(input_path: Path, output_path: Path) -> None:
+    """
+    Execute Pandoc conversion from HTML back to DOCX (round-trip export).
+    """
+    cmd = [
+        "pandoc",
+        str(input_path),
+        "-f", "html",
+        "-t", "docx",
+        "-o", str(output_path),
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        logger.info(f"Pandoc: Converted {input_path.name} to DOCX")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Pandoc failed: {e.stderr}")
+        raise
+
+
 def _parse_version_string(text: object) -> tuple[int, ...] | None:
     """
     Parse a version like '3.9.0.2' into a tuple of ints. Returns None on failure.
@@ -97,8 +116,16 @@ def compare_versions(a: str, b: str) -> int:
 
 
 def check_min_version(installed: str | None, minimum: str) -> bool:
-    """True if `installed` >= `minimum`. False if installed is None or older."""
+    """True if `installed` >= `minimum`. False if `installed` is None, older,
+    or unparseable.
+
+    `compare_versions` returns 0 (the "equal" value) when either operand is
+    unparseable, so a raw `>= 0` would treat a garbage version as satisfying the
+    minimum. Guard explicitly so an unparseable `installed` fails the check.
+    """
     if not installed:
+        return False
+    if _parse_version_string(installed) is None or _parse_version_string(minimum) is None:
         return False
     return compare_versions(installed, minimum) >= 0
 

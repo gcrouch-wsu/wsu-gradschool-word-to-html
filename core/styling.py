@@ -270,20 +270,20 @@ def _build_manual_table_css(settings: dict) -> str:
 
     tbody_body_rule = ""
     if not stripe_on:
-        tbody_body_rule = f"""
+        tbody_body_rule = """
     .manual-grid .manual table tbody > tr > td,
-    .manual-grid .manual table tbody > tr > th {{
+    .manual-grid .manual table tbody > tr > th {
         background-color: #ffffff !important;
         color: #000000 !important;
         font-weight: 400 !important;
-    }}"""
+    }"""
     else:
-        tbody_body_rule = f"""
+        tbody_body_rule = """
     .manual-grid .manual table tbody > tr > td,
-    .manual-grid .manual table tbody > tr > th {{
+    .manual-grid .manual table tbody > tr > th {
         color: #000000 !important;
         font-weight: 400 !important;
-    }}"""
+    }"""
 
     return f"""
     /* Session table theme (overrides wordpress.css) */

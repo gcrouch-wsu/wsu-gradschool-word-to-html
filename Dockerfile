@@ -21,12 +21,22 @@ RUN set -eux; \
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install from the lockfile for reproducible builds. Regenerate
+# requirements.lock.txt from requirements.txt when bumping dependencies
+# (instructions in the lockfile header).
+COPY requirements.lock.txt .
+RUN pip install --no-cache-dir -r requirements.lock.txt
 
 COPY . .
 
+# Run as a non-root user; session data lives under /tmp (PERSIST_DIR default).
+RUN useradd --create-home --shell /usr/sbin/nologin app
+USER app
+
 ENV PORT=8080
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
+  CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT', '8080') + '/healthz', timeout=4)" || exit 1
 
 CMD ["/bin/sh", "-c", "exec gunicorn word_to_wordpressV4:app --bind 0.0.0.0:${PORT}"]
