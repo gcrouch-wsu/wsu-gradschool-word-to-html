@@ -441,12 +441,33 @@ def add_heading_ids(soup_or_html, overwrite_existing: bool = True, stable_map: d
         return str(soup)
     _add_heading_ids_impl(soup_or_html, overwrite_existing, stable_map)
 
-def _add_heading_ids_impl(soup: BeautifulSoup, overwrite_existing: bool = True, stable_map: dict | None = None) -> None:
+def _heading_slug_from_text(text: str) -> str:
+    """Branch-3 slug used when no stable-map id applies (shared with JS recovery)."""
+    slug = re.sub(
+        r'^(?:Chapter|Section)\s+[\dIVXLCDM]+(?:\.[A-Za-z\d]+)*\s*(?:--|[-:.])\s*',
+        '',
+        text,
+        flags=re.IGNORECASE,
+    )
+    slug = re.sub(r'^([A-Z0-9]+(?:\.[A-Z0-9]+)+|[A-Z0-9]+\.)\s+', '', slug, flags=re.IGNORECASE)
+    slug = re.sub(r'[^\w\s-]', '', slug)
+    slug = re.sub(r'[\s_]+', '-', slug)
+    return slug.strip('-').lower()[:50]
+
+def _add_heading_ids_impl(soup: BeautifulSoup, overwrite_existing: bool = True, stable_map: dict | None = None) -> dict[str, str]:
+    """Assign heading ids. Returns {old_id: new_id} for ids that changed.
+
+    Pandoc/Word often emit heading ids and body ``href="#…"`` pairs that use a
+    different slug alphabet than this app. Callers should rewrite internal
+    hrefs with the returned map so Word hyperlinks survive re-iding.
+    """
     used_ids = set()
     sig_occurrence: dict[str, int] = {}  # how many headings of each signature seen so far
+    id_remap: dict[str, str] = {}
     for heading in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
         text = heading.get_text().strip()
         existing_id = (heading.get('id') or '').strip()
+        slug = ""
 
         # Branch 1: keep existing id (only when caller explicitly opts out of overwrite)
         if existing_id and not overwrite_existing:
@@ -459,6 +480,8 @@ def _add_heading_ids_impl(soup: BeautifulSoup, overwrite_existing: bool = True, 
                     counter += 1
             heading['id'] = slug
             used_ids.add(slug)
+            if existing_id and existing_id != slug:
+                id_remap[existing_id] = slug
             continue
 
         # Branch 2: stable map lookup by content signature. The map stores a
@@ -483,18 +506,14 @@ def _add_heading_ids_impl(soup: BeautifulSoup, overwrite_existing: bool = True, 
                             counter += 1
                     heading['id'] = slug
                     used_ids.add(slug)
+                    if existing_id and existing_id != slug:
+                        id_remap[existing_id] = slug
                     continue
                 # More occurrences than the map recorded: fall through to
                 # generate a fresh slug rather than reusing an exhausted id.
 
         # Branch 3: generate slug from heading text
-        slug = re.sub(r'^(?:Chapter|Section)\s+[\dIVXLCDM]+(?:\.[A-Za-z\d]+)*\s*(?:--|[-:.])\s*', '', text, flags=re.IGNORECASE)
-        slug = re.sub(r'^([A-Z0-9]+(?:\.[A-Z0-9]+)+|[A-Z0-9]+\.)\s+', '', slug, flags=re.IGNORECASE)
-        slug = re.sub(r'[^\w\s-]', '', slug)
-        slug = re.sub(r'[\s_]+', '-', slug)
-        slug = slug.strip('-').lower()[:50]
-
-        base_slug = slug or "heading"
+        base_slug = _heading_slug_from_text(text) or "heading"
         slug = base_slug
         counter = 1
         while slug in used_ids:
@@ -502,6 +521,49 @@ def _add_heading_ids_impl(soup: BeautifulSoup, overwrite_existing: bool = True, 
             counter += 1
         heading['id'] = slug
         used_ids.add(slug)
+        if existing_id and existing_id != slug:
+            id_remap[existing_id] = slug
+    return id_remap
+
+def _rewrite_internal_hrefs(soup: BeautifulSoup, id_remap: dict[str, str]) -> int:
+    """Rewrite ``href="#old"`` to ``href="#new"`` using an id remap. Returns count."""
+    if not id_remap:
+        return 0
+    changed = 0
+    for a in soup.find_all('a', href=True):
+        href = (a.get('href') or '').strip()
+        if not href.startswith('#') or len(href) < 2:
+            continue
+        old = href[1:]
+        new = id_remap.get(old)
+        if new and new != old:
+            a['href'] = f'#{new}'
+            changed += 1
+    return changed
+
+def _unwrap_dead_fragment_links(soup: BeautifulSoup) -> int:
+    """Unwrap internal ``#`` links whose target id is missing (e.g. Word bookmarks)."""
+    keep = {'main-content', 'toc-heading', 'search-help'}
+    live_ids = {
+        (h.get('id') or '').strip()
+        for h in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+        if (h.get('id') or '').strip()
+    }
+    live_ids.update(keep)
+    # Also keep any non-heading element ids present in the fragment
+    for tag in soup.find_all(id=True):
+        live_ids.add(tag['id'].strip())
+    unwrapped = 0
+    for a in list(soup.find_all('a', href=True)):
+        href = (a.get('href') or '').strip()
+        if not href.startswith('#') or href == '#':
+            continue
+        target = href[1:]
+        if target in live_ids:
+            continue
+        a.unwrap()
+        unwrapped += 1
+    return unwrapped
 
 def generate_server_side_toc(soup: BeautifulSoup, toc_depth: int) -> str:
     import html as _html
@@ -954,38 +1016,298 @@ def apply_reference_edits(soup_or_html, edits: dict, references: list, validatio
         return str(soup)
     _apply_reference_edits_impl(soup_or_html, edits, references, validations, link_targets, auto_crosswalk, new_headings, reference_ignored, reference_external_urls, skip_linked_text, rebuild_links)
 
+def _strip_heading_label_prefix(value: str) -> str:
+    """Strip Chapter/Section/number labels so '1.1 - Overview' → 'Overview'."""
+    text = (value or "").strip()
+    text = re.sub(r'^(?:Chapter|Section)\s+', '', text, flags=re.IGNORECASE)
+    text = re.sub(
+        r'^[\dIVXLCDM]+(?:\.[A-Za-z\d]+)*\s*(?:[-:.\u2013\u2014]\s*)?',
+        '',
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text.strip()
+
+def _resolve_reference_anchor_id(
+    old: str,
+    disp: str,
+    target: str,
+    new_headings: dict | None,
+    auto_crosswalk: dict | None,
+) -> str:
+    """Resolve an internal heading id from link target / crosswalk / display text.
+
+    ``new_headings`` must carry *final* live ids (scraped after final
+    ``add_heading_ids``), not early upload-scrape ids.
+    """
+    from core.manual_structure import find_heading_by_full
+
+    if not new_headings:
+        return ''
+
+    def _id_from_heading(data: dict | None) -> str:
+        if not data:
+            return ''
+        return (data.get('id') or '').strip()
+
+    def _lookup(candidate: str) -> str:
+        if not candidate:
+            return ''
+        if candidate in new_headings:
+            aid = _id_from_heading(new_headings[candidate])
+            if aid:
+                return aid
+        _, d = find_heading_by_full(candidate, new_headings)
+        aid = _id_from_heading(d)
+        if aid:
+            return aid
+        # Review targets often look like "1.1 - Overview" while final live
+        # headings (after number strip) are just "Overview".
+        stripped = _strip_heading_label_prefix(candidate)
+        if stripped and stripped != candidate:
+            _, d = find_heading_by_full(stripped, new_headings)
+            aid = _id_from_heading(d)
+            if aid:
+                return aid
+            for data in new_headings.values():
+                title = (data.get('text') or data.get('title') or '').strip()
+                if title and title.lower() == stripped.lower():
+                    return _id_from_heading(data)
+        return ''
+
+    cross = ''
+    if auto_crosswalk and old in auto_crosswalk:
+        cross = (auto_crosswalk.get(old) or '').strip()
+
+    for candidate in (target, cross, disp):
+        aid = _lookup(candidate)
+        if aid:
+            return aid
+
+    # Last resort: slug the semantic target and accept only if a live heading
+    # already has that id (avoids inventing dead hrefs).
+    for candidate in (target, cross, disp):
+        if not candidate:
+            continue
+        for probe in (candidate, _strip_heading_label_prefix(candidate)):
+            slug = _heading_slug_from_text(probe)
+            if not slug:
+                continue
+            for data in new_headings.values():
+                if (data.get('id') or '').strip() == slug:
+                    return slug
+    return ''
+
+def _normalize_ws_for_ref_match(text: str) -> str:
+    return re.sub(r'\s+', ' ', (text or '').replace('\u00a0', ' ')).strip()
+
+def _ref_flexible_pattern(old_ref: str) -> re.Pattern:
+    normalized = _normalize_ws_for_ref_match(old_ref)
+    pattern = re.escape(normalized).replace(r'\ ', r'\s+')
+    return re.compile(pattern, re.IGNORECASE)
+
+def _apply_one_reference_in_soup(
+    soup: BeautifulSoup,
+    old_t: str,
+    new_t: str,
+    anchor: str,
+    url: str,
+    skip_linked_text: bool,
+    *,
+    prefer_para_text: str | None = None,
+) -> bool:
+    """Find ``old_t`` in the body and replace/link it (V2-style text search).
+
+    Prefer a block whose full text matches ``prefer_para_text`` (DOCX paragraph
+    text) when provided, then fall back to first safe body occurrence. Existing
+    ``<a>`` wrappers have their href updated instead of nesting a new anchor.
+    """
+    manual_root = find_manual_container(soup) or soup
+    pat = _ref_flexible_pattern(old_t)
+    prefer_norm = _normalize_ws_for_ref_match(prefer_para_text) if prefer_para_text else ''
+
+    # Candidate blocks: paragraphs, list items, table cells (manual body).
+    blocks = []
+    for tag_name in ('p', 'li', 'td', 'th', 'dd', 'blockquote'):
+        blocks.extend(manual_root.find_all(tag_name))
+
+    ordered = []
+    if prefer_norm:
+        for block in blocks:
+            if block.find_parent(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+                continue
+            if _normalize_ws_for_ref_match(block.get_text()) == prefer_norm:
+                ordered.append(block)
+        for block in blocks:
+            if block not in ordered:
+                ordered.append(block)
+    else:
+        ordered = blocks
+
+    safe_u = sanitize_external_href(url) if url else ''
+    link_href = safe_u if safe_u else (f'#{anchor}' if anchor else '')
+
+    for block in ordered:
+        if block.find_parent(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+            continue
+        for element in list(block.find_all(string=True)):
+            if not isinstance(element, NavigableString):
+                continue
+            if element.parent and getattr(element.parent, 'name', None) in ('script', 'style'):
+                continue
+            parent = element.parent
+            if parent and parent.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
+                continue
+            if parent and parent.find_parent(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+                continue
+
+            existing_a = None
+            if parent:
+                if parent.name == 'a':
+                    existing_a = parent
+                else:
+                    existing_a = parent.find_parent('a')
+            if existing_a is not None and skip_linked_text:
+                continue
+
+            original = str(element)
+            match = pat.search(_normalize_ws_for_ref_match(original))
+            if not match:
+                # Also try raw string containment for exact DOCX snippets
+                if old_t not in original:
+                    continue
+                idx = original.find(old_t)
+                start, end = idx, idx + len(old_t)
+            else:
+                # Map normalized match back onto the raw string approximately
+                # by locating old_t / flexible span in the raw text.
+                raw_match = re.search(
+                    re.escape(old_t).replace(r'\ ', r'\s+'),
+                    original,
+                    flags=re.IGNORECASE,
+                )
+                if not raw_match:
+                    continue
+                start, end = raw_match.span()
+
+            before, after = original[:start], original[end:]
+
+            if existing_a is not None:
+                if link_href:
+                    existing_a['href'] = link_href
+                    if safe_u:
+                        existing_a['target'] = '_blank'
+                        existing_a['rel'] = 'noopener noreferrer'
+                        existing_a['class'] = existing_a.get('class', []) + ['external-link']
+                    else:
+                        existing_a.attrs.pop('target', None)
+                # Replace only the matched text inside this text node
+                if _normalize_ws_for_ref_match(existing_a.get_text() or '') == _normalize_ws_for_ref_match(old_t):
+                    existing_a.clear()
+                    existing_a.append(new_t)
+                else:
+                    element.replace_with(NavigableString(before + new_t + after))
+                return True
+
+            nodes: list = []
+            if before:
+                nodes.append(NavigableString(before))
+            if link_href:
+                tag = soup.new_tag('a', href=link_href)
+                if safe_u:
+                    tag['target'] = '_blank'
+                    tag['rel'] = 'noopener noreferrer'
+                    tag['class'] = 'external-link'
+                tag.string = new_t
+                nodes.append(tag)
+            else:
+                nodes.append(NavigableString(new_t))
+            if after:
+                nodes.append(NavigableString(after))
+            if not nodes:
+                continue
+            first, *rest = nodes
+            element.replace_with(first)
+            ref = first
+            for piece in rest:
+                ref.insert_after(piece)
+                ref = piece
+            return True
+    return False
+
 def _apply_reference_edits_impl(soup: BeautifulSoup, edits: dict, references: list, validations: dict = None, link_targets: dict = None, auto_crosswalk: dict = None, new_headings: dict = None, reference_ignored: dict = None, reference_external_urls: dict = None, skip_linked_text: bool = False, rebuild_links: bool = False) -> None:
-    if not references or validations is None: return
+    if not references or validations is None:
+        return
     if rebuild_links:
         pat = re.compile(r'(?:Section|Chapter)\s+[\dIVXLCDM]+(?:\.[A-Za-z\d]+)+|(?<!\w)[\dIVXLCDM]+(?:\.[A-Za-z\d]+){2,}(?!\w)', re.IGNORECASE)
         for a in soup.find_all('a', href=True):
-            if a.get('href', '').startswith('#') and pat.search(normalize_spaces(a.get_text() or '')): a.unwrap()
-    ref_map = {}
+            if a.get('href', '').startswith('#') and pat.search(normalize_spaces(a.get_text() or '')):
+                a.unwrap()
+
+    # Document order: apply later refs first within the same paragraph text so
+    # earlier character offsets remain stable when multiple refs share a block.
+    work: list[dict] = []
     for r in references:
-        para, old, start = r[0], r[2], r[3]; rid = generate_stable_ref_id(para, start, old)
-        if reference_ignored and reference_ignored.get(rid): continue
-        if not (validations.get(rid) or (edits and edits.get(rid)) or (link_targets and link_targets.get(rid)) or (reference_external_urls and reference_external_urls.get(rid))): continue
-        aid = ''; target = link_targets.get(rid, '').strip() if link_targets else ''
-        if target and new_headings:
-            from core.manual_structure import find_heading_by_full
-            _, d = find_heading_by_full(target, new_headings)
-            if d: aid = d.get('id', '')
-        disp = edits.get(rid, '').strip() if edits else ''
-        if not disp and auto_crosswalk: disp = auto_crosswalk.get(old, '')
-        if not disp: disp = old
-        url = reference_external_urls.get(rid, '').strip() if reference_external_urls else ''
-        ref_map.setdefault(para, []).append({'old': old, 'new': disp, 'anchor': aid, 'url': url, 'start': start})
-    manual_root = find_manual_container(soup) or soup
-    paragraphs = [p for p in manual_root.find_all('p') if not p.find_parent('table')]
-    for p_idx, ents in ref_map.items():
-        if p_idx >= len(paragraphs):
+        para = r[0]
+        para_text = r[1] if len(r) > 1 else ''
+        old = r[2]
+        start = r[3]
+        rid = generate_stable_ref_id(para, start, old)
+        if reference_ignored and reference_ignored.get(rid):
             continue
-        p = paragraphs[p_idx]
-        for ent in sorted(ents, key=lambda x: x['start'], reverse=True):
-            old_t, new_t, aid, url = ent['old'], ent['new'], ent['anchor'], ent['url']
-            _replace_reference_at_offset(
-                p, old_t, new_t, aid, url, soup, ent['start'], skip_linked_text
-            )
+        if not (
+            validations.get(rid)
+            or (edits and edits.get(rid))
+            or (link_targets and link_targets.get(rid))
+            or (reference_external_urls and reference_external_urls.get(rid))
+        ):
+            continue
+        target = link_targets.get(rid, '').strip() if link_targets else ''
+        disp = edits.get(rid, '').strip() if edits else ''
+        if not disp and auto_crosswalk:
+            disp = auto_crosswalk.get(old, '')
+        if not disp:
+            disp = old
+        url = reference_external_urls.get(rid, '').strip() if reference_external_urls else ''
+        aid = _resolve_reference_anchor_id(old, disp, target, new_headings, auto_crosswalk)
+        work.append({
+            'para': para,
+            'para_text': para_text,
+            'old': old,
+            'new': disp,
+            'anchor': aid,
+            'url': url,
+            'start': start,
+        })
+
+    # Process in reverse document order so earlier offsets in a shared block
+    # are less likely to shift after a later replacement.
+    for ent in sorted(work, key=lambda x: (x['para'], x['start']), reverse=True):
+        replaced = _apply_one_reference_in_soup(
+            soup,
+            ent['old'],
+            ent['new'],
+            ent['anchor'],
+            ent['url'],
+            skip_linked_text,
+            prefer_para_text=ent.get('para_text') or None,
+        )
+        if not replaced:
+            # Legacy fallback: DOCX para index against non-table <p> list
+            manual_root = find_manual_container(soup) or soup
+            paragraphs = [p for p in manual_root.find_all('p') if not p.find_parent('table')]
+            p_idx = ent['para']
+            if 0 <= p_idx < len(paragraphs):
+                _replace_reference_at_offset(
+                    paragraphs[p_idx],
+                    ent['old'],
+                    ent['new'],
+                    ent['anchor'],
+                    ent['url'],
+                    soup,
+                    ent['start'],
+                    skip_linked_text,
+                )
 
 def apply_css_counter_numbering(soup_or_html, manual_type: str = 'chapter', preserve: bool = False):
     if isinstance(soup_or_html, str):
@@ -1024,9 +1346,17 @@ def process_html_pipeline(html_content: str, session_id: str, config: dict) -> t
     _strip_toc_sections_dom_impl(soup)
     if config.get('mapping_mode') == "map_new" and config.get('infer_heading_depth'):
         _infer_heading_levels_from_prefix_impl(soup, config.get('infer_style_map'))
-    if not config.get('preserve_numbers'): _strip_heading_numbers_dom_impl(soup)
-    _add_heading_ids_impl(soup, stable_map=config.get('stable_heading_map'))
-    if config.get('heading_edits'): _apply_heading_edits_impl(soup, config.get('heading_edits'))
+    if not config.get('preserve_numbers'):
+        _strip_heading_numbers_dom_impl(soup)
+    id_remap = _add_heading_ids_impl(soup, stable_map=config.get('stable_heading_map'))
+    # Pandoc/Word body hyperlinks still point at the pre-rewrite ids — retarget
+    # them before reference linking so keep_old / preserve manuals keep working.
+    if id_remap:
+        n = _rewrite_internal_hrefs(soup, id_remap)
+        if n:
+            logger.info("Rewrote %d internal href(s) after heading id assignment", n)
+    if config.get('heading_edits'):
+        _apply_heading_edits_impl(soup, config.get('heading_edits'))
     _normalize_typed_lists_impl(soup)
     _apply_list_classes_and_styles_impl(soup)
     _format_manual_tables_impl(
@@ -1039,7 +1369,30 @@ def process_html_pipeline(html_content: str, session_id: str, config: dict) -> t
         config.get('table_header_align'),
     )
     if config.get('references'):
-        _apply_reference_edits_impl(soup, config.get('reference_edits', {}), config.get('references', []), config.get('reference_validations', {}), config.get('reference_link_targets', {}), auto_crosswalk=config.get('auto_crosswalk', {}), new_headings=config.get('new_headings', {}), reference_ignored=config.get('reference_ignored', {}), reference_external_urls=config.get('reference_external_urls', {}), skip_linked_text=config.get('skip_linked_text', False), rebuild_links=config.get('rebuild_links', False))
+        # Resolve anchors from *final* live heading ids (after strip/map/edits),
+        # not the early upload-scrape new_headings which can diverge under
+        # permalink maps / CSS-numbering scrape timing.
+        from core.manual_structure import scrape_heading_structure_from_html
+        live_headings = scrape_heading_structure_from_html(str(soup))
+        if not live_headings:
+            live_headings = config.get('new_headings', {}) or {}
+        _apply_reference_edits_impl(
+            soup,
+            config.get('reference_edits', {}),
+            config.get('references', []),
+            config.get('reference_validations', {}),
+            config.get('reference_link_targets', {}),
+            auto_crosswalk=config.get('auto_crosswalk', {}),
+            new_headings=live_headings,
+            reference_ignored=config.get('reference_ignored', {}),
+            reference_external_urls=config.get('reference_external_urls', {}),
+            skip_linked_text=config.get('skip_linked_text', False),
+            rebuild_links=config.get('rebuild_links', False),
+        )
+    # Drop leftover Word-bookmark / orphan # links that still have no target
+    dead = _unwrap_dead_fragment_links(soup)
+    if dead:
+        logger.info("Unwrapped %d dead internal href(s) with missing targets", dead)
     body_html = str(soup)
     toc_html = generate_server_side_toc(soup, config.get('toc_depth', 2))
     return sanitize_manual_html_fragment(body_html), sanitize_manual_html_fragment(toc_html)
