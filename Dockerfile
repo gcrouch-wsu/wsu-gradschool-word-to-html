@@ -39,4 +39,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT', '8080') + '/healthz', timeout=4)" || exit 1
 
-CMD ["/bin/sh", "-c", "exec gunicorn word_to_wordpressV4:app --bind 0.0.0.0:${PORT}"]
+# timeout 120: large manuals (Faculty) can exceed Gunicorn's 30s default during
+# Pandoc + reference linking; workers otherwise get SIGKILL → Internal Server Error.
+CMD ["/bin/sh", "-c", "exec gunicorn word_to_wordpressV4:app --bind 0.0.0.0:${PORT} --timeout 120"]

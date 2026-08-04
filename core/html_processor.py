@@ -1106,134 +1106,132 @@ def _ref_flexible_pattern(old_ref: str) -> re.Pattern:
     pattern = re.escape(normalized).replace(r'\ ', r'\s+')
     return re.compile(pattern, re.IGNORECASE)
 
-def _apply_one_reference_in_soup(
+def _replace_ref_in_block(
     soup: BeautifulSoup,
+    block: Tag,
     old_t: str,
     new_t: str,
     anchor: str,
     url: str,
     skip_linked_text: bool,
-    *,
-    prefer_para_text: str | None = None,
 ) -> bool:
-    """Find ``old_t`` in the body and replace/link it (V2-style text search).
-
-    Prefer a block whose full text matches ``prefer_para_text`` (DOCX paragraph
-    text) when provided, then fall back to first safe body occurrence. Existing
-    ``<a>`` wrappers have their href updated instead of nesting a new anchor.
-    """
-    manual_root = find_manual_container(soup) or soup
+    """Replace/link one reference inside a single block. Updates existing ``<a>`` hrefs."""
+    if block.find_parent(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+        return False
     pat = _ref_flexible_pattern(old_t)
-    prefer_norm = _normalize_ws_for_ref_match(prefer_para_text) if prefer_para_text else ''
-
-    # Candidate blocks: paragraphs, list items, table cells (manual body).
-    blocks = []
-    for tag_name in ('p', 'li', 'td', 'th', 'dd', 'blockquote'):
-        blocks.extend(manual_root.find_all(tag_name))
-
-    ordered = []
-    if prefer_norm:
-        for block in blocks:
-            if block.find_parent(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
-                continue
-            if _normalize_ws_for_ref_match(block.get_text()) == prefer_norm:
-                ordered.append(block)
-        for block in blocks:
-            if block not in ordered:
-                ordered.append(block)
-    else:
-        ordered = blocks
-
+    raw_pat = re.compile(re.escape(old_t).replace(r'\ ', r'\s+'), re.IGNORECASE)
     safe_u = sanitize_external_href(url) if url else ''
     link_href = safe_u if safe_u else (f'#{anchor}' if anchor else '')
 
-    for block in ordered:
-        if block.find_parent(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+    for element in list(block.find_all(string=True)):
+        if not isinstance(element, NavigableString):
             continue
-        for element in list(block.find_all(string=True)):
-            if not isinstance(element, NavigableString):
-                continue
-            if element.parent and getattr(element.parent, 'name', None) in ('script', 'style'):
-                continue
-            parent = element.parent
-            if parent and parent.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
-                continue
-            if parent and parent.find_parent(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
-                continue
+        if element.parent and getattr(element.parent, 'name', None) in ('script', 'style'):
+            continue
+        parent = element.parent
+        if parent and parent.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
+            continue
+        if parent and parent.find_parent(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+            continue
 
-            existing_a = None
-            if parent:
-                if parent.name == 'a':
-                    existing_a = parent
-                else:
-                    existing_a = parent.find_parent('a')
-            if existing_a is not None and skip_linked_text:
-                continue
-
-            original = str(element)
-            match = pat.search(_normalize_ws_for_ref_match(original))
-            if not match:
-                # Also try raw string containment for exact DOCX snippets
-                if old_t not in original:
-                    continue
-                idx = original.find(old_t)
-                start, end = idx, idx + len(old_t)
+        existing_a = None
+        if parent:
+            if parent.name == 'a':
+                existing_a = parent
             else:
-                # Map normalized match back onto the raw string approximately
-                # by locating old_t / flexible span in the raw text.
-                raw_match = re.search(
-                    re.escape(old_t).replace(r'\ ', r'\s+'),
-                    original,
-                    flags=re.IGNORECASE,
-                )
-                if not raw_match:
-                    continue
-                start, end = raw_match.span()
+                existing_a = parent.find_parent('a')
+        if existing_a is not None and skip_linked_text:
+            continue
 
-            before, after = original[:start], original[end:]
+        original = str(element)
+        raw_match = raw_pat.search(original)
+        if not raw_match:
+            if old_t not in original and not pat.search(_normalize_ws_for_ref_match(original)):
+                continue
+            if old_t in original:
+                start = original.find(old_t)
+                end = start + len(old_t)
+            else:
+                continue
+        else:
+            start, end = raw_match.span()
 
-            if existing_a is not None:
-                if link_href:
-                    existing_a['href'] = link_href
-                    if safe_u:
-                        existing_a['target'] = '_blank'
-                        existing_a['rel'] = 'noopener noreferrer'
-                        existing_a['class'] = existing_a.get('class', []) + ['external-link']
-                    else:
-                        existing_a.attrs.pop('target', None)
-                # Replace only the matched text inside this text node
-                if _normalize_ws_for_ref_match(existing_a.get_text() or '') == _normalize_ws_for_ref_match(old_t):
-                    existing_a.clear()
-                    existing_a.append(new_t)
-                else:
-                    element.replace_with(NavigableString(before + new_t + after))
-                return True
+        before, after = original[:start], original[end:]
 
-            nodes: list = []
-            if before:
-                nodes.append(NavigableString(before))
+        if existing_a is not None:
             if link_href:
-                tag = soup.new_tag('a', href=link_href)
+                existing_a['href'] = link_href
                 if safe_u:
-                    tag['target'] = '_blank'
-                    tag['rel'] = 'noopener noreferrer'
-                    tag['class'] = 'external-link'
-                tag.string = new_t
-                nodes.append(tag)
+                    existing_a['target'] = '_blank'
+                    existing_a['rel'] = 'noopener noreferrer'
+                    classes = existing_a.get('class') or []
+                    if isinstance(classes, str):
+                        classes = [classes]
+                    if 'external-link' not in classes:
+                        existing_a['class'] = list(classes) + ['external-link']
+                else:
+                    existing_a.attrs.pop('target', None)
+            if _normalize_ws_for_ref_match(existing_a.get_text() or '') == _normalize_ws_for_ref_match(old_t):
+                existing_a.clear()
+                existing_a.append(new_t)
             else:
-                nodes.append(NavigableString(new_t))
-            if after:
-                nodes.append(NavigableString(after))
-            if not nodes:
-                continue
-            first, *rest = nodes
-            element.replace_with(first)
-            ref = first
-            for piece in rest:
-                ref.insert_after(piece)
-                ref = piece
+                element.replace_with(NavigableString(before + new_t + after))
             return True
+
+        nodes: list = []
+        if before:
+            nodes.append(NavigableString(before))
+        if link_href:
+            tag = soup.new_tag('a', href=link_href)
+            if safe_u:
+                tag['target'] = '_blank'
+                tag['rel'] = 'noopener noreferrer'
+                tag['class'] = 'external-link'
+            tag.string = new_t
+            nodes.append(tag)
+        else:
+            nodes.append(NavigableString(new_t))
+        if after:
+            nodes.append(NavigableString(after))
+        if not nodes:
+            continue
+        first, *rest = nodes
+        element.replace_with(first)
+        ref = first
+        for piece in rest:
+            ref.insert_after(piece)
+            ref = piece
+        return True
     return False
+
+def _find_reference_block(
+    paragraphs: list[Tag],
+    block_index: list[tuple[Tag, str]],
+    para_idx: int,
+    old_t: str,
+    prefer_para_text: str | None,
+) -> Tag | None:
+    """Locate the HTML block for a DOCX reference without scanning text nodes."""
+    # 1) Fast path: DOCX paragraph index → non-table <p> list
+    if isinstance(para_idx, int) and 0 <= para_idx < len(paragraphs):
+        p = paragraphs[para_idx]
+        p_text = p.get_text()
+        if old_t in p_text or _ref_flexible_pattern(old_t).search(_normalize_ws_for_ref_match(p_text)):
+            return p
+
+    # 2) Prefer DOCX paragraph full-text match
+    prefer_norm = _normalize_ws_for_ref_match(prefer_para_text) if prefer_para_text else ''
+    if prefer_norm:
+        for block, norm in block_index:
+            if norm == prefer_norm:
+                return block
+
+    # 3) First block that contains the reference text
+    pat = _ref_flexible_pattern(old_t)
+    for block, norm in block_index:
+        if old_t in norm or pat.search(norm):
+            return block
+    return None
 
 def _apply_reference_edits_impl(soup: BeautifulSoup, edits: dict, references: list, validations: dict = None, link_targets: dict = None, auto_crosswalk: dict = None, new_headings: dict = None, reference_ignored: dict = None, reference_external_urls: dict = None, skip_linked_text: bool = False, rebuild_links: bool = False) -> None:
     if not references or validations is None:
@@ -1244,8 +1242,6 @@ def _apply_reference_edits_impl(soup: BeautifulSoup, edits: dict, references: li
             if a.get('href', '').startswith('#') and pat.search(normalize_spaces(a.get_text() or '')):
                 a.unwrap()
 
-    # Document order: apply later refs first within the same paragraph text so
-    # earlier character offsets remain stable when multiple refs share a block.
     work: list[dict] = []
     for r in references:
         para = r[0]
@@ -1262,13 +1258,13 @@ def _apply_reference_edits_impl(soup: BeautifulSoup, edits: dict, references: li
             or (reference_external_urls and reference_external_urls.get(rid))
         ):
             continue
-        target = link_targets.get(rid, '').strip() if link_targets else ''
-        disp = edits.get(rid, '').strip() if edits else ''
+        target = (link_targets.get(rid) or '').strip() if link_targets else ''
+        disp = (edits.get(rid) or '').strip() if edits else ''
         if not disp and auto_crosswalk:
-            disp = auto_crosswalk.get(old, '')
+            disp = auto_crosswalk.get(old, '') or ''
         if not disp:
             disp = old
-        url = reference_external_urls.get(rid, '').strip() if reference_external_urls else ''
+        url = (reference_external_urls.get(rid) or '').strip() if reference_external_urls else ''
         aid = _resolve_reference_anchor_id(old, disp, target, new_headings, auto_crosswalk)
         work.append({
             'para': para,
@@ -1280,26 +1276,46 @@ def _apply_reference_edits_impl(soup: BeautifulSoup, edits: dict, references: li
             'start': start,
         })
 
-    # Process in reverse document order so earlier offsets in a shared block
-    # are less likely to shift after a later replacement.
+    if not work:
+        return
+
+    # Build lookup structures once — full-document rescans per ref were timing
+    # out Gunicorn on large manuals (Faculty Manual ~2 minutes for 80 refs).
+    manual_root = find_manual_container(soup) or soup
+    paragraphs = [p for p in manual_root.find_all('p') if not p.find_parent('table')]
+    blocks: list[Tag] = []
+    for tag_name in ('p', 'li', 'td', 'th', 'dd', 'blockquote'):
+        blocks.extend(manual_root.find_all(tag_name))
+    block_index = [
+        (b, _normalize_ws_for_ref_match(b.get_text()))
+        for b in blocks
+        if not b.find_parent(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+    ]
+
     for ent in sorted(work, key=lambda x: (x['para'], x['start']), reverse=True):
-        replaced = _apply_one_reference_in_soup(
+        block = _find_reference_block(
+            paragraphs,
+            block_index,
+            ent['para'],
+            ent['old'],
+            ent.get('para_text') or None,
+        )
+        if block is None:
+            continue
+        if not _replace_ref_in_block(
             soup,
+            block,
             ent['old'],
             ent['new'],
             ent['anchor'],
             ent['url'],
             skip_linked_text,
-            prefer_para_text=ent.get('para_text') or None,
-        )
-        if not replaced:
-            # Legacy fallback: DOCX para index against non-table <p> list
-            manual_root = find_manual_container(soup) or soup
-            paragraphs = [p for p in manual_root.find_all('p') if not p.find_parent('table')]
-            p_idx = ent['para']
-            if 0 <= p_idx < len(paragraphs):
+        ):
+            # Offset-based legacy path when the block was found by index but
+            # text-node walk missed (unusual formatting).
+            if block.name == 'p' and block in paragraphs:
                 _replace_reference_at_offset(
-                    paragraphs[p_idx],
+                    block,
                     ent['old'],
                     ent['new'],
                     ent['anchor'],
@@ -1308,6 +1324,12 @@ def _apply_reference_edits_impl(soup: BeautifulSoup, edits: dict, references: li
                     ent['start'],
                     skip_linked_text,
                 )
+        # Refresh cached text for the mutated block so later refs in the same
+        # paragraph still match.
+        for i, (b, _norm) in enumerate(block_index):
+            if b is block:
+                block_index[i] = (b, _normalize_ws_for_ref_match(b.get_text()))
+                break
 
 def apply_css_counter_numbering(soup_or_html, manual_type: str = 'chapter', preserve: bool = False):
     if isinstance(soup_or_html, str):
