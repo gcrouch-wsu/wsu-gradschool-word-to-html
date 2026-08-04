@@ -1053,6 +1053,7 @@ def table_review(session_id):
         table_source,
         theme_settings.get("table_headers"),
         theme_settings.get("table_aligns"),
+        theme_settings.get("table_blocks"),
     )
     sw_bg = wsu_swatch_buttons_html("table_header_bg")
     sw_hc = wsu_swatch_buttons_html("table_header_color")
@@ -1241,6 +1242,7 @@ def do_convert(session_id):
             'table_header_align': theme_settings.get('table_header_align'),
             'table_headers': theme_settings.get('table_headers', {}),
             'table_aligns': theme_settings.get('table_aligns', {}),
+            'table_blocks': theme_settings.get('table_blocks', {}),
             'references': original_references,
             'reference_edits': reference_edits,
             'reference_validations': reference_validations,

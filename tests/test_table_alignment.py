@@ -11,6 +11,8 @@ Two defects from the published Faculty Manual:
    setting appeared to do nothing.
 """
 
+from pathlib import Path
+
 from bs4 import BeautifulSoup
 
 from core.html_processor import (
@@ -18,7 +20,7 @@ from core.html_processor import (
     format_manual_tables,
     process_html_pipeline,
 )
-from core.styling import TABLE_ALIGN_MODES, coerce_theme_settings
+from core.styling import TABLE_ALIGN_MODES, TABLE_BLOCK_MODES, coerce_theme_settings
 
 # Column 2 mixes "1"/"2" with "3 or more"; column 3 mixes "3"/"12" with "3*".
 ADVANCE_NOTICE = (
@@ -133,3 +135,69 @@ def test_partial_theme_form_keeps_per_table_align_modes():
     prior = {"table_aligns": {"1": "center_all"}}
     settings, _ = coerce_theme_settings({"primary_color": "#123456"}, "chapter", prior=prior)
     assert settings["table_aligns"] == {"1": "center_all"}
+
+
+# --- table placement (where the table sits on the page) -------------------
+
+def _table_classes(html):
+    return [t.get("class") for t in BeautifulSoup(html, "html.parser").find_all("table")]
+
+
+def test_no_placement_choice_leaves_the_table_alone():
+    """The default must not restyle already-published manuals."""
+    assert _table_classes(format_manual_tables(ADVANCE_NOTICE)) == [None]
+
+
+def test_each_placement_emits_its_own_class():
+    for mode, cls in (
+        ("full", "manual-table-full"),
+        ("center", "manual-table-center"),
+        ("left", "manual-table-left"),
+        ("right", "manual-table-right"),
+    ):
+        out = format_manual_tables(ADVANCE_NOTICE, block_overrides={"0": mode})
+        assert _table_classes(out) == [[cls]], (mode, _table_classes(out))
+
+
+def test_placement_is_per_table():
+    html = f"<div>{ADVANCE_NOTICE}{ADVANCE_NOTICE}</div>"
+    out = format_manual_tables(html, block_overrides={"1": "right"})
+    assert _table_classes(out) == [None, ["manual-table-right"]]
+
+
+def test_placement_replaces_a_previous_choice_rather_than_stacking():
+    once = format_manual_tables(ADVANCE_NOTICE, block_overrides={"0": "full"})
+    twice = format_manual_tables(once, block_overrides={"0": "center"})
+    assert _table_classes(twice) == [["manual-table-center"]]
+
+
+def test_placement_keeps_unrelated_table_classes():
+    html = ADVANCE_NOTICE.replace("<table>", "<table class='wp-block-table'>")
+    out = format_manual_tables(html, block_overrides={"0": "left"})
+    assert _table_classes(out) == [["wp-block-table", "manual-table-left"]]
+
+
+def test_placement_survives_the_grid_block_used_by_downloads():
+    aligned = format_manual_tables(ADVANCE_NOTICE, block_overrides={"0": "center"})
+    block = build_manual_grid_block(aligned, 2, "chapter", "preserve")
+    assert "manual-table-center" in block
+
+
+def test_theme_settings_collect_per_table_placements():
+    settings, _ = coerce_theme_settings(
+        {
+            "table_block_align_0": "center",
+            "table_block_align_1": "auto",
+            "table_block_align_2": "sideways",
+        },
+        "chapter",
+    )
+    assert settings["table_blocks"] == {"0": "center"}
+    assert all(m in TABLE_BLOCK_MODES for m in settings["table_blocks"].values())
+
+
+def test_stylesheet_defines_every_placement_class():
+    """A class with no rule behind it would silently do nothing."""
+    css = (Path(__file__).resolve().parent.parent / "wordpress.css").read_text(encoding="utf-8")
+    for cls in ("manual-table-full", "manual-table-center", "manual-table-left", "manual-table-right"):
+        assert f".manual table.{cls}" in css, cls

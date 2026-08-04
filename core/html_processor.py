@@ -624,22 +624,25 @@ def format_manual_tables(
     col2_align: str | None = None,
     col3_align: str | None = None,
     align_overrides: dict | None = None,
+    block_align: str = "auto",
+    block_overrides: dict | None = None,
 ):
     if isinstance(soup_or_html, str):
         soup = BeautifulSoup(soup_or_html, _HTML_PARSER)
         _format_manual_tables_impl(
             soup, align_mode, col1_align, col2_align, col3_align, coln_align, header_align,
-            align_overrides,
+            align_overrides, block_align, block_overrides,
         )
         return str(soup)
     _format_manual_tables_impl(
         soup_or_html, align_mode, col1_align, col2_align, col3_align, coln_align, header_align,
-        align_overrides,
+        align_overrides, block_align, block_overrides,
     )
 
 
 def describe_tables(html_path, overrides: dict | None = None,
-                    align_overrides: dict | None = None) -> list[dict]:
+                    align_overrides: dict | None = None,
+                    block_overrides: dict | None = None) -> list[dict]:
     """Summarize each table for the Table Review step.
 
     Returns the first two rows as text so the operator can see which row the
@@ -648,6 +651,7 @@ def describe_tables(html_path, overrides: dict | None = None,
     """
     overrides = {str(k): str(v) for k, v in (overrides or {}).items()}
     align_overrides = {str(k): str(v) for k, v in (align_overrides or {}).items()}
+    block_overrides = {str(k): str(v) for k, v in (block_overrides or {}).items()}
     try:
         path = Path(html_path)
         if not path.is_file():
@@ -675,6 +679,7 @@ def describe_tables(html_path, overrides: dict | None = None,
             "index": index,
             "mode": overrides.get(str(index), "auto"),
             "align_mode": align_overrides.get(str(index), "auto"),
+            "block_mode": block_overrides.get(str(index), "auto"),
             "columns": columns,
             "row_count": len(table.find_all('tr')),
             "caption": caption.get_text(" ", strip=True) if caption else "",
@@ -710,6 +715,37 @@ def max_columns_in_first_table(html_path) -> int:
         return 0
 
 
+TABLE_BLOCK_CLASSES = {
+    "full": "manual-table-full",
+    "center": "manual-table-center",
+    "left": "manual-table-left",
+    "right": "manual-table-right",
+}
+
+
+def _apply_table_block_class(table: Tag, placement: str) -> None:
+    """Mark where the table sits on the page, as a class on the table itself.
+
+    Placement used to be one global rule inside the generated theme block, so it
+    could not differ per table and never reached sites that install only
+    wordpress.css — the control silently did nothing. Emitting a class here puts
+    it in the HTML, where it travels with the fragment and works against the base
+    stylesheet alone. "auto" emits nothing, leaving the table at its natural
+    content width, which is what every published manual does today.
+    """
+    existing = table.get('class') or []
+    if isinstance(existing, str):
+        existing = existing.split()
+    keep = [c for c in existing if c not in TABLE_BLOCK_CLASSES.values()]
+    wanted = TABLE_BLOCK_CLASSES.get(placement)
+    if wanted:
+        keep.append(wanted)
+    if keep:
+        table['class'] = keep
+    else:
+        table.attrs.pop('class', None)
+
+
 def _format_manual_tables_impl(
     soup: BeautifulSoup,
     align_mode: str = "auto",
@@ -719,9 +755,13 @@ def _format_manual_tables_impl(
     coln_align: str | None = None,
     header_align: str | None = None,
     align_overrides: dict | None = None,
+    block_align: str = "auto",
+    block_overrides: dict | None = None,
 ) -> None:
     default_mode = (align_mode or "auto").strip().lower()
     overrides = {str(k): str(v).strip().lower() for k, v in (align_overrides or {}).items()}
+    default_block = (block_align or "auto").strip().lower()
+    blocks = {str(k): str(v).strip().lower() for k, v in (block_overrides or {}).items()}
     def norm_align(v: str | None) -> str | None:
         if v is None:
             return None
@@ -793,6 +833,7 @@ def _format_manual_tables_impl(
     for table_index, table in enumerate(soup.find_all('table')):
         mode = overrides.get(str(table_index)) or default_mode
         col_is_numeric = numeric_columns(table)
+        _apply_table_block_class(table, blocks.get(str(table_index)) or default_block)
         # WCAG 1.3.1: add scope to th elements for screen reader table navigation
         for th in table.find_all('th'):
             if not th.get('scope'):
@@ -1745,6 +1786,8 @@ def process_html_pipeline(html_content: str, session_id: str, config: dict) -> t
         config.get('table_coln_align'),
         config.get('table_header_align'),
         config.get('table_aligns'),
+        'auto',
+        config.get('table_blocks'),
     )
     if config.get('references'):
         # Resolve anchors from *final* live heading ids (after strip/map/edits),

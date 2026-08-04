@@ -1276,3 +1276,38 @@ body .manual-grid .manual ul > li::before {
 		margin: 0.75in;
 	}
 }
+
+/* ====================================================
+   Table placement (set per table in Table Review)
+   ====================================================
+   Emitted as a class on the <table> by html_processor._apply_table_block_class
+   rather than as a generated theme rule, so the choice travels inside the HTML
+   fragment and works against this stylesheet alone. A table with none of these
+   classes keeps its natural content width. */
+.manual table.manual-table-full {
+	width: 100% !important;
+	max-width: 100% !important;
+	margin-left: 0 !important;
+	margin-right: 0 !important;
+}
+
+.manual table.manual-table-center {
+	width: auto !important;
+	max-width: 100% !important;
+	margin-left: auto !important;
+	margin-right: auto !important;
+}
+
+.manual table.manual-table-left {
+	width: auto !important;
+	max-width: 100% !important;
+	margin-left: 0 !important;
+	margin-right: auto !important;
+}
+
+.manual table.manual-table-right {
+	width: auto !important;
+	max-width: 100% !important;
+	margin-left: auto !important;
+	margin-right: 0 !important;
+}

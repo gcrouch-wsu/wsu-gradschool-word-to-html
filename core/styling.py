@@ -50,7 +50,6 @@ def default_theme_settings(manual_type: str = "chapter", theme_id: str | None = 
         "table_coln_align": None,
         "table_header_align": None,
         "table_layout_mode": "auto",
-        "table_block_align": "full",
         "table_header_bg": "#f5f5f5",
         "table_header_color": "#000000",
         "table_header_bold": False,
@@ -65,6 +64,8 @@ def default_theme_settings(manual_type: str = "chapter", theme_id: str | None = 
         # {table index (str): alignment mode} — per-table override of
         # table_align_mode, which is otherwise document-wide
         "table_aligns": {},
+        # {table index (str): placement} — per-table override of table_block_align
+        "table_blocks": {},
     }
 
 _TABLE_HEADER_MODES = ("auto", "first_row", "title_row", "none")
@@ -74,6 +75,17 @@ TABLE_ALIGN_MODES = (
     "auto", "left_all", "center_all", "right_all", "right_numeric", "auto_skip_first",
 )
 _TABLE_ALIGN_FIELD_RE = re.compile(r"^table_align_mode_(\d+)$")
+
+# Where the table sits on the page, as opposed to how text sits in its cells.
+# Chosen per table, because it depends on how the table looks — a wide table
+# reads better full width, a short one centered. There is deliberately NO
+# document-wide default: the old global `table_block_align` defaulted to "full"
+# and lived in the generated theme block, so it never reached sites running the
+# base stylesheet. Reviving it would have silently stretched every table in every
+# already-published manual. "auto" emits no class and leaves the table at its
+# natural content width, which is what those manuals look like today.
+TABLE_BLOCK_MODES = ("auto", "full", "center", "left", "right")
+_TABLE_BLOCK_FIELD_RE = re.compile(r"^table_block_align_(\d+)$")
 
 
 def _coerce_indexed_modes(value, allowed: tuple) -> dict:
@@ -95,6 +107,10 @@ def _coerce_table_headers(value) -> dict:
 
 def _coerce_table_aligns(value) -> dict:
     return _coerce_indexed_modes(value, TABLE_ALIGN_MODES)
+
+
+def _coerce_table_blocks(value) -> dict:
+    return _coerce_indexed_modes(value, TABLE_BLOCK_MODES)
 
 
 _ALIGN_KEYS = frozenset({
@@ -205,9 +221,6 @@ def coerce_theme_settings(
         elif key == "table_layout_mode":
             s = str(val).strip().lower()
             settings[key] = s if s in ("auto", "fixed") else "auto"
-        elif key == "table_block_align":
-            s = str(val).strip().lower()
-            settings[key] = s if s in ("full", "center", "left") else "full"
         elif key == "table_border_style":
             s = str(val).strip().lower()
             settings[key] = s if s in ("solid", "dashed", "dotted", "none") else "solid"
@@ -221,6 +234,8 @@ def coerce_theme_settings(
             settings[key] = _coerce_table_headers(val)
         elif key == "table_aligns":
             settings[key] = _coerce_table_aligns(val)
+        elif key == "table_blocks":
+            settings[key] = _coerce_table_blocks(val)
         else:
             settings[key] = val
 
@@ -228,22 +243,21 @@ def coerce_theme_settings(
     # rather than a nested dict, so collect those separately. Only do it when
     # the form actually carried them: the preview theme panel posts a partial
     # form and must not wipe choices made on the Table Review page.
-    posted_headers, saw_header_field = {}, False
-    posted_aligns, saw_align_field = {}, False
+    indexed = [
+        (_TABLE_HEADER_FIELD_RE, "table_headers", _coerce_table_headers, {}, [False]),
+        (_TABLE_ALIGN_FIELD_RE, "table_aligns", _coerce_table_aligns, {}, [False]),
+        (_TABLE_BLOCK_FIELD_RE, "table_blocks", _coerce_table_blocks, {}, [False]),
+    ]
     for raw_key, raw_val in raw_settings.items():
-        match = _TABLE_HEADER_FIELD_RE.match(str(raw_key))
-        if match:
-            saw_header_field = True
-            posted_headers[match.group(1)] = raw_val
-            continue
-        match = _TABLE_ALIGN_FIELD_RE.match(str(raw_key))
-        if match:
-            saw_align_field = True
-            posted_aligns[match.group(1)] = raw_val
-    if saw_header_field:
-        settings["table_headers"] = _coerce_table_headers(posted_headers)
-    if saw_align_field:
-        settings["table_aligns"] = _coerce_table_aligns(posted_aligns)
+        for pattern, _name, _coerce, posted, seen in indexed:
+            match = pattern.match(str(raw_key))
+            if match:
+                seen[0] = True
+                posted[match.group(1)] = raw_val
+                break
+    for _pattern, name, coerce, posted, seen in indexed:
+        if seen[0]:
+            settings[name] = coerce(posted)
 
     return _finalize_theme_settings(settings, warnings)
 
@@ -267,12 +281,11 @@ def _finalize_theme_settings(settings: dict, warnings: list[str]) -> tuple[dict,
     settings["table_border_style"] = s if s in ("solid", "dashed", "dotted", "none") else "solid"
     s = str(settings.get("table_layout_mode", "auto")).strip().lower()
     settings["table_layout_mode"] = s if s in ("auto", "fixed") else "auto"
-    s = str(settings.get("table_block_align", "full")).strip().lower()
-    settings["table_block_align"] = s if s in ("full", "center", "left") else "full"
     for bk in _BOOL_KEYS:
         settings[bk] = bool(settings.get(bk))
     settings["table_headers"] = _coerce_table_headers(settings.get("table_headers"))
     settings["table_aligns"] = _coerce_table_aligns(settings.get("table_aligns"))
+    settings["table_blocks"] = _coerce_table_blocks(settings.get("table_blocks"))
     return settings, warnings
 
 
@@ -281,34 +294,11 @@ def _build_manual_table_css(settings: dict) -> str:
     layout = settings.get("table_layout_mode", "auto")
     if layout not in ("auto", "fixed"):
         layout = "auto"
-    block = str(settings.get("table_block_align", "full")).lower()
-    if block not in ("full", "center", "left"):
-        block = "full"
-
-    if block == "full":
-        block_css = """
-    .manual-grid .manual table {
-        width: 100% !important;
-        max-width: 100% !important;
-        margin-left: 0 !important;
-        margin-right: 0 !important;
-    }"""
-    elif block == "center":
-        block_css = """
-    .manual-grid .manual table {
-        width: auto !important;
-        max-width: 100% !important;
-        margin-left: auto !important;
-        margin-right: auto !important;
-    }"""
-    else:
-        block_css = """
-    .manual-grid .manual table {
-        width: auto !important;
-        max-width: 100% !important;
-        margin-left: 0 !important;
-        margin-right: auto !important;
-    }"""
+    # Table placement is no longer emitted here. It used to be a single global
+    # rule inside this theme block, which meant it could not vary per table AND
+    # never reached sites that install only wordpress.css — the setting silently
+    # did nothing. It is now a class on each <table> (see html_processor
+    # _apply_table_block_class) with rules in wordpress.css.
 
     hdr_bg = normalize_hex_color(str(settings.get("table_header_bg", "#f5f5f5")), "#f5f5f5")
     hdr_fg = normalize_hex_color(str(settings.get("table_header_color", "#000000")), "#000000")
@@ -367,7 +357,6 @@ def _build_manual_table_css(settings: dict) -> str:
         border-collapse: collapse !important;
         table-layout: {layout} !important;
     }}
-    {block_css}
     .manual-grid .manual table th,
     .manual-grid .manual table td {{
         {border_rule}

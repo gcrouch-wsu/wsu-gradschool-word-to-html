@@ -101,6 +101,17 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
             <small class="small">Whole columns are aligned together, so a footnote marker or &ldquo;3 or more&rdquo; stays in line with the numbers above it. The Column 1&ndash;4+ settings below override this.</small>
           </div>
         </div>
+        <div>
+          <label for="table_block_align_{{ t.index }}">Where this table sits on the page</label>
+          <select id="table_block_align_{{ t.index }}" name="table_block_align_{{ t.index }}">
+            <option value="auto" {{ 'selected' if t.block_mode == 'auto' }}>Automatic &mdash; fit to content</option>
+            <option value="full" {{ 'selected' if t.block_mode == 'full' }}>Full width</option>
+            <option value="center" {{ 'selected' if t.block_mode == 'center' }}>Centered</option>
+            <option value="left" {{ 'selected' if t.block_mode == 'left' }}>Left</option>
+            <option value="right" {{ 'selected' if t.block_mode == 'right' }}>Right</option>
+          </select>
+          <small class="small">A wide table usually reads better full width; a short two-column table often looks better centered or left. Judge it from the preview after converting.</small>
+        </div>
       </div>
       {% endfor %}
     </section>
@@ -136,12 +147,7 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
         </select>
       </div>
       <div>
-        <label for="table_block_align">Table width / horizontal position</label>
-        <select id="table_block_align" name="table_block_align">
-          <option value="full" {{ 'selected' if theme_settings.get('table_block_align', 'full') == 'full' }}>Full width</option>
-          <option value="center" {{ 'selected' if theme_settings.get('table_block_align', 'full') == 'center' }}>Centered (fit content)</option>
-          <option value="left" {{ 'selected' if theme_settings.get('table_block_align', 'full') == 'left' }}>Left (fit content)</option>
-        </select>
+        <p class="small" style="margin:26px 0 0 0;">Table width and horizontal position are set <strong>per table</strong>, in the Header rows section above &mdash; it depends on how each table looks.</p>
       </div>
     </div>
     <div class="row" style="margin-top:8px;">
