@@ -60,7 +60,26 @@ def default_theme_settings(manual_type: str = "chapter", theme_id: str | None = 
         "table_cell_padding": 8,
         "table_row_stripe": False,
         "table_row_stripe_color": "#f9fafb",
+        # {table index (str): header mode} — see html_processor.TABLE_HEADER_MODES
+        "table_headers": {},
     }
+
+_TABLE_HEADER_MODES = ("auto", "first_row", "title_row", "none")
+_TABLE_HEADER_FIELD_RE = re.compile(r"^table_header_mode_(\d+)$")
+
+
+def _coerce_table_headers(value) -> dict:
+    """Keep only {digit-string: known mode} pairs."""
+    if not isinstance(value, dict):
+        return {}
+    cleaned = {}
+    for key, mode in value.items():
+        key = str(key).strip()
+        mode = str(mode).strip().lower()
+        if key.isdigit() and mode in _TABLE_HEADER_MODES and mode != "auto":
+            cleaned[key] = mode
+    return cleaned
+
 
 _ALIGN_KEYS = frozenset({
     "table_col1_align",
@@ -182,8 +201,25 @@ def coerce_theme_settings(
             settings[key] = s if s in allowed else "auto"
         elif key == "font_family":
             settings[key] = _sanitize_font_family(val, settings[key])
+        elif key == "table_headers":
+            settings[key] = _coerce_table_headers(val)
         else:
             settings[key] = val
+
+    # The Table Review form posts one `table_header_mode_<n>` field per table
+    # rather than a nested dict, so collect those separately. Only do it when
+    # the form actually carried them: the preview theme panel posts a partial
+    # form and must not wipe choices made on the Table Review page.
+    posted_modes = {}
+    saw_mode_field = False
+    for raw_key, raw_val in raw_settings.items():
+        match = _TABLE_HEADER_FIELD_RE.match(str(raw_key))
+        if not match:
+            continue
+        saw_mode_field = True
+        posted_modes[match.group(1)] = raw_val
+    if saw_mode_field:
+        settings["table_headers"] = _coerce_table_headers(posted_modes)
 
     return _finalize_theme_settings(settings, warnings)
 
@@ -211,6 +247,7 @@ def _finalize_theme_settings(settings: dict, warnings: list[str]) -> tuple[dict,
     settings["table_block_align"] = s if s in ("full", "center", "left") else "full"
     for bk in _BOOL_KEYS:
         settings[bk] = bool(settings.get(bk))
+    settings["table_headers"] = _coerce_table_headers(settings.get("table_headers"))
     return settings, warnings
 
 

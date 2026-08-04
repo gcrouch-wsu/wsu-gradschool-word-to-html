@@ -1,7 +1,7 @@
 import logging
 import re
 from bs4 import BeautifulSoup
-from .permalinks import normalize_heading_ref, ensure_prefixed, SPELLED_NUMS
+from .permalinks import normalize_heading_ref, ensure_prefixed, is_section_style, SPELLED_NUMS
 from utils.helpers import roman_to_int
 
 logger = logging.getLogger(__name__)
@@ -448,7 +448,7 @@ def auto_match_old_to_new_references(old_references: list, new_structure: dict, 
                 numeric = ".".join(converted_parts)
                 candidates.append(f"{prefix} {numeric}")
 
-        if manual_type == "chapter":
+        if not is_section_style(manual_type):
             norm = []
             for c in candidates:
                 if c.lower().startswith("section "):

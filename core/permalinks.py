@@ -11,6 +11,36 @@ SPELLED_NUMS = {
     "eighteen": 18, "nineteen": 19, "twenty": 20
 }
 
+# --- Manual type ---------------------------------------------------------
+# `preprocess_docx` emits three values, not two: "chapter", "section", and
+# "policy" (any document whose opening paragraphs mention policies or
+# procedures — the Faculty Manual and GSPP both match). Policy manuals label
+# their top level "Section N", so "policy" resolves to the same prefix as
+# "section".
+#
+# Everything that needs the label word must go through manual_prefix(). It used
+# to be decided independently in five places that disagreed: ensure_prefixed
+# said "Chapter" for a policy manual while apply_css_counter_numbering said
+# "Section", so a map_new conversion numbered headings one way and built its
+# crosswalk keys the other and auto-matching silently found nothing.
+_SECTION_STYLE_MANUAL_TYPES = frozenset({"section", "policy"})
+
+
+def normalize_manual_type(manual_type: str | None) -> str:
+    """Collapse a detected manual type to the two the renderer understands."""
+    return "section" if is_section_style(manual_type) else "chapter"
+
+
+def is_section_style(manual_type: str | None) -> bool:
+    """True when this manual numbers its top level "Section N"."""
+    return str(manual_type or "").strip().lower() in _SECTION_STYLE_MANUAL_TYPES
+
+
+def manual_prefix(manual_type: str | None) -> str:
+    """The heading label word for a manual type: "Chapter" or "Section"."""
+    return "Section" if is_section_style(manual_type) else "Chapter"
+
+
 def normalize_heading_signature(text: str) -> str:
     """
     Normalize a heading's full text into a stable lookup signature for the
@@ -56,5 +86,4 @@ def ensure_prefixed(ref: str, manual_type: str = "chapter") -> str:
         return ""
     if re.match(r'^(Chapter|Section)\s+', ref, re.IGNORECASE):
         return ref.strip()
-    prefix = "Section" if manual_type == "section" else "Chapter"
-    return f"{prefix} {ref.strip()}"
+    return f"{manual_prefix(manual_type)} {ref.strip()}"

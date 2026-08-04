@@ -16,7 +16,7 @@ from docx.text.paragraph import Paragraph
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-from .permalinks import normalize_heading_ref
+from .permalinks import normalize_heading_ref, is_section_style
 from utils.helpers import (
     roman_to_int, 
     _int_to_roman, 
@@ -771,7 +771,7 @@ def build_numbering_crosswalk(doc: Document, manual_type: str = "chapter") -> di
                     if level == 1:
                         chapter_counter += 1
                         section_counter = subsection_counter = subsubsection_counter = subsubsubsection_counter = 0
-                        if manual_type == "section":
+                        if is_section_style(manual_type):
                             roman_numerals = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX']
                             chapter_str = roman_numerals[chapter_counter] if chapter_counter < len(roman_numerals) else str(chapter_counter)
                             new_numbering = f"Section {chapter_str}"

@@ -6,7 +6,7 @@ import uuid
 import hashlib
 from pathlib import Path
 from bs4 import BeautifulSoup, Tag, NavigableString
-from .permalinks import normalize_heading_signature
+from .permalinks import normalize_heading_signature, manual_prefix, normalize_manual_type
 from utils.helpers import sanitize_theme_id, roman_to_int
 from config import SessionDir
 
@@ -84,6 +84,19 @@ _BLEACH_ATTRS = {
     'img': ['src', 'alt', 'width', 'height', 'loading', 'class', 'decoding', 'title'],
     'th': ['abbr', 'scope', 'colspan', 'rowspan', 'headers', 'class', 'id'],
     'td': ['colspan', 'rowspan', 'headers', 'class', 'id'],
+    # The exporter stamps the manual's own settings onto .manual-grid and reads
+    # them back on import (extract_manual_fragment). They must survive
+    # sanitization: bleach dropped every data-* here, so re-importing a
+    # downloaded fragment silently lost its numbering mode, TOC depth, theme,
+    # and — worst — its data-heading-offset, so the +1 heading shift baked into
+    # a fragment was never undone and chapters stayed demoted to h2.
+    # Values are re-validated on read (build_manual_grid_block normalizes the
+    # enums; import_html coerces the integers), so allowing the names is safe.
+    'div': [
+        'class', 'id', 'style', 'role', 'aria-label', 'aria-labelledby',
+        'data-toc-depth', 'data-manual-type', 'data-numbering-mode',
+        'data-heading-offset', 'data-theme',
+    ],
     'ol': ['type', 'start', 'class', 'id', 'data-list-style'],
     'ul': ['class', 'id'],
     'li': ['class', 'id', 'value'],
@@ -622,6 +635,54 @@ def format_manual_tables(
     )
 
 
+def describe_tables(html_path, overrides: dict | None = None) -> list[dict]:
+    """Summarize each table for the Table Review step.
+
+    Returns the first two rows as text so the operator can see which row the
+    conversion currently treats as the header and correct it when Word left a
+    title row or an ordinary data row in ``<thead>``.
+    """
+    overrides = {str(k): str(v) for k, v in (overrides or {}).items()}
+    try:
+        path = Path(html_path)
+        if not path.is_file():
+            return []
+        soup = BeautifulSoup(path.read_text(encoding='utf-8', errors='ignore'), _HTML_PARSER)
+    except (OSError, ValueError):
+        return []
+
+    def cells_of(row):
+        if row is None:
+            return []
+        return [c.get_text(" ", strip=True)[:60] for c in row.find_all(['th', 'td'])]
+
+    described = []
+    for index, table in enumerate(soup.find_all('table')):
+        thead = table.find('thead')
+        head_row = thead.find('tr') if thead is not None else None
+        body_rows = [
+            tr for tr in table.find_all('tr')
+            if head_row is None or tr is not head_row
+        ]
+        columns = _table_columns(table)
+        caption = table.find('caption')
+        described.append({
+            "index": index,
+            "mode": overrides.get(str(index), "auto"),
+            "columns": columns,
+            "row_count": len(table.find_all('tr')),
+            "caption": caption.get_text(" ", strip=True) if caption else "",
+            "head_cells": cells_of(head_row),
+            "first_body_cells": cells_of(body_rows[0] if body_rows else None),
+            "second_body_cells": cells_of(body_rows[1] if len(body_rows) > 1 else None),
+            "looks_like_title_row": bool(
+                head_row is not None and _row_is_full_width_title(head_row, columns)
+            ),
+            "has_header": head_row is not None,
+        })
+    return described
+
+
 def max_columns_in_first_table(html_path) -> int:
     """Return max column count among rows of the first <table>, or 0 if none."""
     try:
@@ -720,6 +781,120 @@ def _format_manual_tables_impl(
                 td['class'] = [c for c in (td.get('class', []) if isinstance(td.get('class', []), list) else td.get('class', '').split()) if not c.startswith("manual-align-")] + [f"manual-align-{a}"]
                 apply_align(td, a)
                 for child in td.find_all(['p', 'span']): apply_align(child, a)
+
+# Per-table header handling. "auto" applies the title-row repair below; the
+# others are operator overrides set in the Table Review step.
+TABLE_HEADER_MODES = ("auto", "first_row", "title_row", "none")
+
+
+def _table_columns(table: Tag) -> int:
+    widest = 0
+    for tr in table.find_all('tr'):
+        n = sum(
+            max(1, int(c.get('colspan') or 1)) if str(c.get('colspan') or 1).isdigit() else 1
+            for c in tr.find_all(['th', 'td'])
+        )
+        widest = max(widest, n)
+    return widest
+
+
+def _row_is_full_width_title(row: Tag, columns: int) -> bool:
+    """True when a row is really a table title: one cell spanning every column."""
+    cells = row.find_all(['th', 'td'])
+    if len(cells) != 1 or columns < 2:
+        return False
+    raw_span = str(cells[0].get('colspan') or 1)
+    span = int(raw_span) if raw_span.isdigit() else 1
+    return span >= columns and bool(cells[0].get_text(strip=True))
+
+
+def _promote_row_to_header(row: Tag) -> None:
+    for cell in row.find_all(['th', 'td']):
+        cell.name = 'th'
+        cell['scope'] = 'col'
+
+
+def _demote_row_to_body(row: Tag) -> None:
+    for cell in row.find_all(['th', 'td']):
+        cell.name = 'td'
+        cell.attrs.pop('scope', None)
+
+
+def normalize_table_headers(soup_or_html, overrides: dict | None = None):
+    """Give every table a defensible header structure.
+
+    Word tables arrive with whatever row Pandoc happened to put in ``<thead>``,
+    and the alignment pass then stamped ``scope="col"`` on it without asking
+    whether it was a header at all. Two real shapes came out wrong:
+
+    * A merged title row ("Advance Notice Table") became the ``<thead>`` while
+      the actual column headers sat in the body as plain ``<td>`` — so the
+      table had no programmatic headers (WCAG 1.3.1) and the title took the
+      header styling.
+    * An ordinary data row was promoted to ``<thead>``, so screen readers
+      announced that row's text as the header of every column.
+
+    The first is repaired automatically (a full-width single cell is a caption,
+    not a header). The second cannot be detected reliably, so ``overrides``
+    carries the operator's choice from the Table Review step, keyed by the
+    table's position in the document: one of ``TABLE_HEADER_MODES``.
+    """
+    if isinstance(soup_or_html, str):
+        soup = BeautifulSoup(soup_or_html, _HTML_PARSER)
+        _normalize_table_headers_impl(soup, overrides)
+        return str(soup)
+    _normalize_table_headers_impl(soup_or_html, overrides)
+
+
+def _normalize_table_headers_impl(soup: BeautifulSoup, overrides: dict | None = None) -> None:
+    overrides = {str(k): str(v) for k, v in (overrides or {}).items()}
+    for index, table in enumerate(soup.find_all('table')):
+        mode = overrides.get(str(index), 'auto')
+        if mode not in TABLE_HEADER_MODES:
+            mode = 'auto'
+        columns = _table_columns(table)
+        thead = table.find('thead')
+        tbody = table.find('tbody')
+
+        if mode == 'none':
+            if thead is not None:
+                for row in list(thead.find_all('tr')):
+                    _demote_row_to_body(row)
+                    if tbody is not None:
+                        tbody.insert(0, row.extract())
+                if not thead.find('tr'):
+                    thead.decompose()
+            continue
+
+        head_row = thead.find('tr') if thead is not None else None
+
+        # Title row -> <caption>, and the row beneath it becomes the header.
+        wants_title_fix = mode in ('auto', 'title_row')
+        if wants_title_fix and head_row is not None and _row_is_full_width_title(head_row, columns):
+            title_text = head_row.get_text(" ", strip=True)
+            if not table.find('caption'):
+                caption = soup.new_tag('caption')
+                caption.string = title_text
+                table.insert(0, caption)
+            head_row.extract()
+            next_row = tbody.find('tr') if tbody is not None else table.find('tr')
+            if next_row is not None:
+                _promote_row_to_header(next_row)
+                thead.append(next_row.extract())
+            elif not thead.find('tr'):
+                thead.decompose()
+            logger.info("Table %d: converted full-width title row to <caption>", index)
+            continue
+
+        # Explicit "the first body row is the header".
+        if mode == 'first_row' and head_row is None:
+            first = tbody.find('tr') if tbody is not None else table.find('tr')
+            if first is not None:
+                _promote_row_to_header(first)
+                new_head = soup.new_tag('thead')
+                new_head.append(first.extract())
+                table.insert(0, new_head)
+
 
 def infer_heading_levels_from_prefix(soup_or_html, style_map: dict | None = None):
     if isinstance(soup_or_html, str):
@@ -903,12 +1078,18 @@ def _replace_reference_first_occurrence(
     skip_linked_text: bool,
 ) -> bool:
     """Legacy first-match replacement (fallback)."""
+    # Guarded so this last-resort path cannot do what the primary path now
+    # refuses to: match a short label inside a longer one ("Section II.F"
+    # inside "Section II.F.6"), which linked the wrong target and left the
+    # remaining ".6" stranded outside the anchor.
+    guard = _guarded_ref_regex(re.escape(old_t).replace(r'\ ', r'\s+'))
 
     def rep(n, t, r, a, u):
         if isinstance(n, NavigableString):
-            if t in n:
-                idx = n.find(t)
-                b, af = n[:idx], n[idx + len(t) :]
+            m = guard.search(str(n))
+            if m:
+                idx = m.start()
+                b, af = n[:idx], n[m.end() :]
                 nodes = [NavigableString(b)]
                 safe_u = sanitize_external_href(u) if u else ""
                 if safe_u or a:
@@ -957,11 +1138,17 @@ def _replace_reference_at_offset(
 ) -> bool:
     """Replace old_t in paragraph at character offset (matches DOCX/HTML ref extraction)."""
     flat = paragraph.get_text(separator="", strip=False)
-    if (
-        start_offset < 0
-        or start_offset + len(old_t) > len(flat)
-        or flat[start_offset : start_offset + len(old_t)] != old_t
-    ):
+    # The slice must be the whole label, not the head of a longer one: at this
+    # offset "Section II.F" also slices cleanly out of "Section II.F.6".
+    end_offset = start_offset + len(old_t)
+    offset_is_whole_label = (
+        start_offset >= 0
+        and end_offset <= len(flat)
+        and flat[start_offset:end_offset] == old_t
+        and not re.match(r'\.?\w', flat[end_offset:end_offset + 2])
+        and not re.search(r'[\w.]$', flat[:start_offset])
+    )
+    if not offset_is_whole_label:
         return _replace_reference_first_occurrence(
             paragraph, old_t, new_t, anchor, url, soup, skip_linked_text
         )
@@ -1101,10 +1288,77 @@ def _resolve_reference_anchor_id(
 def _normalize_ws_for_ref_match(text: str) -> str:
     return re.sub(r'\s+', ' ', (text or '').replace('\u00a0', ' ')).strip()
 
+# A reference label must never match when it is merely the leading part of a
+# longer label. "Section II.F" matched inside "Section II.F.6", linked the
+# prefix to II.F, and left ".6" as orphaned plain text next to a wrong link.
+#
+# Leading guard: not preceded by a word character or a dot, so "II.F.6" cannot
+# match inside "VIII.F.6".
+# Trailing guard: not followed by an optional dot plus a word character, so
+# "Section II.F" will not match "Section II.F.6" while a label that legitimately
+# ends a sentence ("... in Section II.F.6.") still matches.
+_REF_LEAD_GUARD = r'(?<![\w.])'
+_REF_TAIL_GUARD = r'(?!\.?\w)'
+
+
+def _guarded_ref_regex(body: str, flags=re.IGNORECASE) -> re.Pattern:
+    return re.compile(_REF_LEAD_GUARD + body + _REF_TAIL_GUARD, flags)
+
+
 def _ref_flexible_pattern(old_ref: str) -> re.Pattern:
     normalized = _normalize_ws_for_ref_match(old_ref)
     pattern = re.escape(normalized).replace(r'\ ', r'\s+')
-    return re.compile(pattern, re.IGNORECASE)
+    return _guarded_ref_regex(pattern)
+
+def _absorb_split_reference_anchor(
+    block: Tag, old_t: str, new_t: str, link_href: str, safe_u: str
+) -> bool:
+    """Repair a label split across an existing ``<a>`` boundary.
+
+    Word cross-reference fields are often applied to only part of a label: the
+    field covers "Section II.F" while the author typed the trailing ".6"
+    immediately after it. Pandoc reproduces that split faithfully, so the
+    anchor points at the shorter section and the remainder is stranded as plain
+    text next to it — a link that reads right and goes somewhere wrong. Pull
+    the remainder inside the anchor and retarget it.
+    """
+    if not link_href:
+        return False
+    want = _normalize_ws_for_ref_match(old_t)
+    for a in block.find_all('a'):
+        atext = _normalize_ws_for_ref_match(a.get_text())
+        if not atext or atext == want or not want.startswith(atext):
+            continue
+        remainder = want[len(atext):]
+        nxt = a.next_sibling
+        if not remainder or not isinstance(nxt, NavigableString):
+            continue
+        tail = str(nxt)
+        if not tail.startswith(remainder):
+            continue
+        # The label must end here, not continue into a longer one.
+        if re.match(r'\.?\w', tail[len(remainder):len(remainder) + 2]):
+            continue
+        a['href'] = link_href
+        if safe_u:
+            a['target'] = '_blank'
+            a['rel'] = 'noopener noreferrer'
+            classes = a.get('class') or []
+            if isinstance(classes, str):
+                classes = [classes]
+            if 'external-link' not in classes:
+                a['class'] = list(classes) + ['external-link']
+        else:
+            a.attrs.pop('target', None)
+        a.clear()
+        a.append(new_t)
+        nxt.replace_with(NavigableString(tail[len(remainder):]))
+        logger.info(
+            "Repaired split reference anchor: %r + %r -> %r", atext, remainder, new_t
+        )
+        return True
+    return False
+
 
 def _replace_ref_in_block(
     soup: BeautifulSoup,
@@ -1114,14 +1368,28 @@ def _replace_ref_in_block(
     anchor: str,
     url: str,
     skip_linked_text: bool,
+    occurrence: int = 0,
 ) -> bool:
-    """Replace/link one reference inside a single block. Updates existing ``<a>`` hrefs."""
+    """Replace/link one reference inside a single block. Updates existing ``<a>`` hrefs.
+
+    ``occurrence`` selects *which* copy of ``old_t`` to act on when the same
+    label appears more than once in the block (0 = first). Without it every
+    reference in a paragraph resolved to the first match, so a paragraph like
+    "...for Patents, Section IV.G.8, or for Plant Varieties, Section IV.G.9"
+    linked only the first of each pair and left the rest as plain text.
+
+    Callers process work items in descending ``(paragraph, start)`` order, which
+    keeps this index stable: replacing a later occurrence never shifts the
+    position of an earlier one.
+    """
     if block.find_parent(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
         return False
     pat = _ref_flexible_pattern(old_t)
-    raw_pat = re.compile(re.escape(old_t).replace(r'\ ', r'\s+'), re.IGNORECASE)
+    raw_pat = _guarded_ref_regex(re.escape(old_t).replace(r'\ ', r'\s+'))
     safe_u = sanitize_external_href(url) if url else ''
     link_href = safe_u if safe_u else (f'#{anchor}' if anchor else '')
+    target_occurrence = max(0, int(occurrence or 0))
+    seen = 0
 
     for element in list(block.find_all(string=True)):
         if not isinstance(element, NavigableString):
@@ -1134,6 +1402,24 @@ def _replace_ref_in_block(
         if parent and parent.find_parent(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
             continue
 
+        original = str(element)
+        spans = [m.span() for m in raw_pat.finditer(original)]
+        if not spans:
+            # Whitespace-tolerant fallback for labels split by odd spacing.
+            if pat.search(_normalize_ws_for_ref_match(original)):
+                idx = original.find(old_t)
+                if idx >= 0:
+                    spans = [(idx, idx + len(old_t))]
+            if not spans:
+                continue
+
+        # Walk past text nodes holding earlier occurrences of the same label.
+        if seen + len(spans) <= target_occurrence:
+            seen += len(spans)
+            continue
+        local_index = target_occurrence - seen
+        seen += len(spans)
+
         existing_a = None
         if parent:
             if parent.name == 'a':
@@ -1143,19 +1429,7 @@ def _replace_ref_in_block(
         if existing_a is not None and skip_linked_text:
             continue
 
-        original = str(element)
-        raw_match = raw_pat.search(original)
-        if not raw_match:
-            if old_t not in original and not pat.search(_normalize_ws_for_ref_match(original)):
-                continue
-            if old_t in original:
-                start = original.find(old_t)
-                end = start + len(old_t)
-            else:
-                continue
-        else:
-            start, end = raw_match.span()
-
+        start, end = spans[local_index]
         before, after = original[:start], original[end:]
 
         if existing_a is not None:
@@ -1202,6 +1476,12 @@ def _replace_ref_in_block(
             ref.insert_after(piece)
             ref = piece
         return True
+
+    # No single text node held the label. It may be split across an existing
+    # anchor boundary (Word cross-reference fields do this) — try to repair
+    # that before the caller falls back to offset-based replacement.
+    if not skip_linked_text and target_occurrence == 0:
+        return _absorb_split_reference_anchor(block, old_t, new_t, link_href, safe_u)
     return False
 
 def _find_reference_block(
@@ -1212,11 +1492,15 @@ def _find_reference_block(
     prefer_para_text: str | None,
 ) -> Tag | None:
     """Locate the HTML block for a DOCX reference without scanning text nodes."""
+    # Guarded matching throughout: a bare `old_t in text` substring test let a
+    # short label ("Section II.F") claim the block belonging to a longer one
+    # ("Section II.F.6") and link the wrong target.
+    pat = _ref_flexible_pattern(old_t)
+
     # 1) Fast path: DOCX paragraph index → non-table <p> list
     if isinstance(para_idx, int) and 0 <= para_idx < len(paragraphs):
         p = paragraphs[para_idx]
-        p_text = p.get_text()
-        if old_t in p_text or _ref_flexible_pattern(old_t).search(_normalize_ws_for_ref_match(p_text)):
+        if pat.search(_normalize_ws_for_ref_match(p.get_text())):
             return p
 
     # 2) Prefer DOCX paragraph full-text match
@@ -1227,9 +1511,8 @@ def _find_reference_block(
                 return block
 
     # 3) First block that contains the reference text
-    pat = _ref_flexible_pattern(old_t)
     for block, norm in block_index:
-        if old_t in norm or pat.search(norm):
+        if pat.search(norm):
             return block
     return None
 
@@ -1241,6 +1524,26 @@ def _apply_reference_edits_impl(soup: BeautifulSoup, edits: dict, references: li
         for a in soup.find_all('a', href=True):
             if a.get('href', '').startswith('#') and pat.search(normalize_spaces(a.get_text() or '')):
                 a.unwrap()
+
+    # Every id present once heading ids have been assigned. Used to reject
+    # stale internal anchors saved in the External URL field (see below).
+    live_ids = {
+        (t.get('id') or '').strip()
+        for t in soup.find_all(id=True)
+        if (t.get('id') or '').strip()
+    }
+
+    # Ordinal of each reference among the references sharing its paragraph and
+    # label, so two copies of the same label in one paragraph link separately.
+    # Built over *all* detected references (not just the approved ones) because
+    # the ordinal must match the text, where unapproved copies remain in place.
+    starts_by_label: dict[tuple, list] = {}
+    for r in references:
+        starts_by_label.setdefault(
+            (r[0], _normalize_ws_for_ref_match(r[2]).lower()), []
+        ).append(r[3])
+    for starts in starts_by_label.values():
+        starts.sort()
 
     work: list[dict] = []
     for r in references:
@@ -1265,7 +1568,20 @@ def _apply_reference_edits_impl(soup: BeautifulSoup, edits: dict, references: li
         if not disp:
             disp = old
         url = (reference_external_urls.get(rid) or '').strip() if reference_external_urls else ''
+        # An internal anchor saved in the External URL field is usually a
+        # prefill carried over from an earlier cycle. If its target no longer
+        # exists, honoring it built a link that _unwrap_dead_fragment_links then
+        # stripped, silently demoting the reference to plain text. Fall back to
+        # the anchor this conversion resolved instead.
+        if url.startswith('#') and url[1:] not in live_ids:
+            logger.warning(
+                "Reference %r: External URL %r has no matching id in this "
+                "conversion; using the resolved anchor instead.", old, url,
+            )
+            url = ''
         aid = _resolve_reference_anchor_id(old, disp, target, new_headings, auto_crosswalk)
+        label_key = (para, _normalize_ws_for_ref_match(old).lower())
+        starts = starts_by_label.get(label_key) or [start]
         work.append({
             'para': para,
             'para_text': para_text,
@@ -1274,6 +1590,7 @@ def _apply_reference_edits_impl(soup: BeautifulSoup, edits: dict, references: li
             'anchor': aid,
             'url': url,
             'start': start,
+            'occurrence': starts.index(start) if start in starts else 0,
         })
 
     if not work:
@@ -1310,6 +1627,7 @@ def _apply_reference_edits_impl(soup: BeautifulSoup, edits: dict, references: li
             ent['anchor'],
             ent['url'],
             skip_linked_text,
+            occurrence=ent.get('occurrence', 0),
         ):
             # Offset-based legacy path when the block was found by index but
             # text-node walk missed (unusual formatting).
@@ -1347,7 +1665,7 @@ def _apply_css_counter_numbering_impl(soup: BeautifulSoup, manual_type: str = 'c
         cnt[lvl] += 1
         lvls = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
         for d in lvls[lvls.index(lvl) + 1:]: cnt[d] = 0
-        pref = "Chapter" if manual_type == 'chapter' else "Section"
+        pref = manual_prefix(manual_type)
         if lvl == 'h1': num = str(cnt['h1']); new = f"{pref} {num} - {txt}"
         else:
             if lvl == 'h2': num = f"{cnt['h1']}.{cnt['h2']}"
@@ -1381,6 +1699,9 @@ def process_html_pipeline(html_content: str, session_id: str, config: dict) -> t
         _apply_heading_edits_impl(soup, config.get('heading_edits'))
     _normalize_typed_lists_impl(soup)
     _apply_list_classes_and_styles_impl(soup)
+    # Header structure before alignment: the alignment pass stamps scope="col"
+    # on whatever sits in <thead>, so the rows have to be right first.
+    _normalize_table_headers_impl(soup, config.get('table_headers'))
     _format_manual_tables_impl(
         soup,
         config.get('table_align_mode', 'auto'),
@@ -1511,6 +1832,26 @@ def build_manual_grid_block(
     """
     body_html = format_manual_tables(body_html)
 
+    # These land in HTML attributes and can arrive from an imported document's
+    # own grid metadata, so constrain them rather than interpolating raw:
+    #   - manual_type is collapsed to the two values the CSS and JS understand
+    #     ("policy" reached the attribute and matched neither, so a policy
+    #     manual silently rendered with Chapter numbering);
+    #   - numbering_mode is an enum;
+    #   - toc_depth / heading_offset are integers.
+    grid_manual_type = normalize_manual_type(manual_type)
+    grid_numbering_mode = (
+        numbering_mode if numbering_mode in ("css-counters", "preserve") else "css-counters"
+    )
+    try:
+        grid_toc_depth = max(1, min(6, int(toc_depth)))
+    except (TypeError, ValueError):
+        grid_toc_depth = 2
+    try:
+        heading_offset = max(-5, min(5, int(heading_offset or 0)))
+    except (TypeError, ValueError):
+        heading_offset = 0
+
     offset_attr = f' data-heading-offset="{heading_offset}"' if heading_offset else ""
     theme_attr = f' data-theme="{sanitize_theme_id(theme_id, "manual")}"'
     toc_block = (
@@ -1521,7 +1862,7 @@ def build_manual_grid_block(
     return (
         '<!-- ACCESSIBILITY: Skip navigation link for keyboard users (WCAG 2.4.1) -->\n'
         '<a href="#main-content" class="skip-to-main">Skip to main content</a>\n'
-        f'<div class="manual-grid" data-toc-depth="{toc_depth}" data-manual-type="{manual_type}" data-numbering-mode="{numbering_mode}"{offset_attr}{theme_attr}>\n'
+        f'<div class="manual-grid" data-toc-depth="{grid_toc_depth}" data-manual-type="{grid_manual_type}" data-numbering-mode="{grid_numbering_mode}"{offset_attr}{theme_attr}>\n'
             '  <nav class="manual-toc" role="navigation" aria-label="Table of Contents">\n'
             '    <h2 id="toc-heading">Table of Contents</h2>\n'
             '    <div class="manual-search">\n'

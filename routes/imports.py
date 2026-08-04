@@ -36,6 +36,7 @@ from core.html_processor import (
     extract_manual_fragment,
 )
 from core.docx_processor import compute_sha256, deserialize_sequence_map
+from core.permalinks import normalize_manual_type
 from core.manual_structure import scrape_heading_structure_from_html, auto_match_old_to_new_references
 from core.reference_linking import extract_references_from_html
 from core.styling import coerce_theme_settings
@@ -98,9 +99,19 @@ def import_html():
         except (ValueError, TypeError):
             heading_offset = 0
         if heading_offset:
+            # A downloaded fragment has its headings shifted down (h1 -> h2) and
+            # records that in data-heading-offset; undo it so the manual is back
+            # at its native levels. This must be persisted, not just applied to
+            # the in-memory copy used for scraping: do_convert re-reads
+            # import.html, so writing only the scrape copy left the conversion
+            # working from the still-shifted file and chapters stayed at h2.
             manual_html = shift_heading_levels(manual_html, -heading_offset)
+            html_path.write_text(manual_html, encoding='utf-8')
 
-        manual_type = meta.get('manual_type') or "chapter"
+        # Normalize at the trust boundary: this value came from the uploaded
+        # file's own grid attributes and feeds numbering, theming, and the
+        # crosswalk prefix.
+        manual_type = normalize_manual_type(meta.get('manual_type') or "chapter")
         toc_depth = meta.get('toc_depth') or "2"
         numbering_mode = meta.get('numbering_mode') or "css-counters"
         theme_id = meta.get('theme_id') or ""

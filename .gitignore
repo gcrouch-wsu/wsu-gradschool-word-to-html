@@ -6,3 +6,13 @@ __pycache__/
 *.docx
 *.heading-map.json
 archive/
+
+# Manual content and deployment artifacts. These carry the actual text of live
+# policy manuals (or a site's deployed assets) and must never land in the repo.
+# Note *.docx above does NOT cover a DOCX carried inside a session bundle, which
+# is why the zip pattern is listed separately.
+*_session.zip
+manual_fragment*.html
+manual_standalone*.html
+*.session.json
+facsen*

@@ -27,6 +27,15 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
 .wsu-swatch { width: 26px; height: 26px; border-radius: 4px; border: 1px solid #bbb; cursor: pointer; padding: 0; flex-shrink: 0; box-sizing: border-box; }
 .wsu-swatch:hover { filter: brightness(1.08); border-color: #981E32; }
 .wsu-swatch:focus { outline: 2px solid #981E32; outline-offset: 2px; }
+.table-headers { margin-bottom: 24px; }
+.table-headers h2 { font-size: 1.1rem; color: #374151; margin-bottom: 4px; }
+.table-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 16px; margin: 12px 0; background: #fafafa; }
+.table-card-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.table-card .flag { font-size: 13px; color: #065f46; background: #d1fae5; border-radius: 999px; padding: 2px 10px; }
+.table-card .flag.warn { color: #92400e; background: #fef3c7; }
+.table-peek { border-collapse: collapse; margin: 8px 0; font-size: 13px; width: 100%; }
+.table-peek th, .table-peek td { border: 1px solid #e5e7eb; padding: 4px 8px; text-align: left; vertical-align: top; }
+.table-peek th { width: 130px; background: #f1f5f9; font-weight: 600; white-space: nowrap; }
 </style>
 <style id="wp-preview-base">{{ wp_css_text|safe }}</style>
 <style id="table-preview-theme"></style>
@@ -47,6 +56,39 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
   <div class="controls-section">
   <form id="table-review-form" method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if tables %}
+    <section class="table-headers" aria-labelledby="table-headers-heading">
+      <h2 id="table-headers-heading">Header rows</h2>
+      <p class="small">Word decides which row lands in <code>&lt;thead&gt;</code>, and it is not always the real header. A row marked as the header is announced by screen readers as the heading for every cell in its column, so a data row in that position is misleading. Check each table below.</p>
+      {% for t in tables %}
+      <div class="table-card">
+        <div class="table-card-head">
+          <strong>Table {{ t.index + 1 }}</strong>
+          <span class="small">{{ t.row_count }} rows &middot; {{ t.columns }} columns</span>
+          {% if t.looks_like_title_row %}<span class="flag">Title row detected &mdash; will become a caption</span>
+          {% elif not t.has_header %}<span class="flag warn">No header row</span>{% endif %}
+        </div>
+        {% if t.caption %}<p class="small"><em>Caption:</em> {{ t.caption }}</p>{% endif %}
+        <table class="table-peek">
+          <tr><th scope="row">In <code>&lt;thead&gt;</code></th>
+            <td>{% if t.head_cells %}{{ t.head_cells|join(' | ') }}{% else %}<em>(none)</em>{% endif %}</td></tr>
+          <tr><th scope="row">Next row</th>
+            <td>{% if t.first_body_cells %}{{ t.first_body_cells|join(' | ') }}{% else %}<em>(none)</em>{% endif %}</td></tr>
+          {% if t.second_body_cells %}
+          <tr><th scope="row">Then</th><td>{{ t.second_body_cells|join(' | ') }}</td></tr>
+          {% endif %}
+        </table>
+        <label for="table_header_mode_{{ t.index }}">Treat the first row as</label>
+        <select id="table_header_mode_{{ t.index }}" name="table_header_mode_{{ t.index }}">
+          <option value="auto" {{ 'selected' if t.mode == 'auto' }}>Automatic (recommended)</option>
+          <option value="first_row" {{ 'selected' if t.mode == 'first_row' }}>Column headers</option>
+          <option value="title_row" {{ 'selected' if t.mode == 'title_row' }}>A title &rarr; caption, next row is the header</option>
+          <option value="none" {{ 'selected' if t.mode == 'none' }}>Ordinary data (no header row)</option>
+        </select>
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
     <div class="row">
       {% for col, label in [('table_col1_align', 'Column 1 alignment'), ('table_col2_align', 'Column 2 alignment'), ('table_col3_align', 'Column 3 alignment'), ('table_coln_align', 'Column 4+ alignment')] %}
       <div>

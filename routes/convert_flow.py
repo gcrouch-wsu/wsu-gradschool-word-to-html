@@ -51,6 +51,7 @@ from core.html_processor import (
     strip_heading_numbers_dom,
     format_manual_tables,
     max_columns_in_first_table,
+    describe_tables,
     extract_manual_fragment,
     build_manual_grid_block,
 )
@@ -77,7 +78,7 @@ from core.manual_structure import (
     build_heading_crosswalk_from_map,
 )
 from core.reference_linking import extract_external_links_from_html, extract_external_links_from_reference_text
-from utils.url_policy import is_safe_href
+from utils.url_policy import is_safe_href, normalize_external_href
 from core.styling import (
     coerce_theme_settings,
     build_theme_css,
@@ -621,6 +622,10 @@ def review(session_id):
 
             logger.debug(f"Collected {len(all_ref_ids)} reference IDs from form: {sorted(list(all_ref_ids))[:10]}")
 
+            # External URL values that could not be made into a safe link. Kept
+            # so the operator is told which ones were not saved.
+            rejected_external: list[str] = []
+
             # Process edits, validations, and targets
             for ref_id in all_ref_ids:
                 # ref_id is already a stable ID (e.g., "ref_42_123_a1b2c3d4"), use it directly
@@ -654,10 +659,16 @@ def review(session_id):
                 # Save external URL (link to other manuals). Only persist
                 # safe-scheme URLs: the export re-sanitizes, but unsafe values
                 # should not linger in session.json to be reused elsewhere.
-                external_value = request.form.get(f'ref_external_{ref_id}', '').strip()
-                if external_value and is_safe_href(external_value):
+                # A scheme-less host ("policies.wsu.edu/x") is promoted to
+                # https rather than discarded; anything still refused is
+                # reported below instead of vanishing from the form silently.
+                external_raw = request.form.get(f'ref_external_{ref_id}', '').strip()
+                external_value = normalize_external_href(external_raw)
+                if external_value:
                     external_urls[edit_key] = external_value
-                elif edit_key in external_urls:
+                else:
+                    if external_raw:
+                        rejected_external.append(external_raw)
                     external_urls.pop(edit_key, None)
 
                 # Debug output
@@ -694,6 +705,18 @@ def review(session_id):
             logger.debug(f"Sample validations: {dict(list(validations.items())[:5])}")
 
             flash(f"✓ Edits saved successfully! Found {valid_count} valid references, {invalid_count} skipped references. Saved to: {edit_file.name}. Export a session bundle to share or continue on another machine.")
+            if rejected_external:
+                unique_rejected = sorted(set(rejected_external))
+                shown = ", ".join(f"“{value[:60]}”" for value in unique_rejected[:3])
+                if len(unique_rejected) > 3:
+                    shown += f", and {len(unique_rejected) - 3} more"
+                flash(
+                    f"⚠ {len(unique_rejected)} External URL value(s) were NOT saved — "
+                    f"only http(s), mailto:, and #anchor links are allowed: {shown}. "
+                    "Re-enter them as a full web address."
+                )
+                logger.warning("Rejected %d External URL value(s): %s",
+                               len(unique_rejected), unique_rejected[:10])
             if 'proceed' in request.form:
                 if edit_tables and has_tables:
                     return redirect(url_for('table_review', session_id=session_id))
@@ -1023,10 +1046,10 @@ def table_review(session_id):
     theme_settings, warnings = coerce_theme_settings(session_data.get('theme_settings'), manual_type)
 
     detected_cols = 0
-    if html_import and html_path.exists():
-        detected_cols = max_columns_in_first_table(html_path)
-    elif session.temp_html.exists():
-        detected_cols = max_columns_in_first_table(session.temp_html)
+    table_source = html_path if (html_import and html_path.exists()) else session.temp_html
+    if table_source.exists():
+        detected_cols = max_columns_in_first_table(table_source)
+    tables = describe_tables(table_source, theme_settings.get("table_headers"))
     sw_bg = wsu_swatch_buttons_html("table_header_bg")
     sw_hc = wsu_swatch_buttons_html("table_header_color")
     sw_bc = wsu_swatch_buttons_html("table_border_color")
@@ -1051,6 +1074,7 @@ def table_review(session_id):
         session_id=session_id,
         manual_type=manual_type,
         detected_cols=detected_cols,
+        tables=tables,
         theme_settings=theme_settings,
         sw_bg=sw_bg,
         sw_hc=sw_hc,
@@ -1211,6 +1235,7 @@ def do_convert(session_id):
             'table_col3_align': theme_settings.get('table_col3_align'),
             'table_coln_align': theme_settings.get('table_coln_align'),
             'table_header_align': theme_settings.get('table_header_align'),
+            'table_headers': theme_settings.get('table_headers', {}),
             'references': original_references,
             'reference_edits': reference_edits,
             'reference_validations': reference_validations,

@@ -36,12 +36,17 @@
 	border: 0 !important;
 }
 
-/* Enhanced focus indicators - WCAG 2.4.7 (Focus Visible) */
-a:focus,
-button:focus,
-input:focus,
-select:focus,
-textarea:focus {
+/* Enhanced focus indicators - WCAG 2.4.7 (Focus Visible)
+   Scoped to the manual. This stylesheet is installed site-wide (Appearance ->
+   Additional CSS), so an unscoped `a:focus, input:focus, ...` restyled every
+   link and form control on the whole host site — including pages that have
+   nothing to do with a manual. Keep it inside .manual-grid; the skip link sits
+   outside the grid and has its own focus rule below. */
+.manual-grid a:focus,
+.manual-grid button:focus,
+.manual-grid input:focus,
+.manual-grid select:focus,
+.manual-grid textarea:focus {
 	outline: 3px solid #0284c7 !important;
 	outline-offset: 2px !important;
 	box-shadow: 0 0 0 4px rgba(2,132,199,0.2) !important;
@@ -181,15 +186,21 @@ div.manual-grid div.manual {
 }
 
 /* Force TOC column */
-/* Make body overflow visible only on this page */
-body.page-id-43010 {
+/* position:sticky on the TOC fails if any ancestor has overflow other than
+   visible (MDN). Target any page that actually contains a manual instead of a
+   hard-coded WordPress page id — the old `body.page-id-43010` rules only ever
+   matched one page, so every additional manual (GSPP, a new edition on a new
+   page) silently lost its sticky TOC. `:has()` is supported by all current
+   browsers; wordpress.js `ensureStickyAncestors()` remains the runtime
+   fallback for anything older. */
+body:has(.manual-grid) {
 	overflow: visible !important;
 	overflow-x: visible !important;
 }
 
 /* Ensure wrappers are also visible overflow */
-body.page-id-43010 .wsu-wrapper-site,
-body.page-id-43010 .wsu-wrapper-global {
+body:has(.manual-grid) .wsu-wrapper-site,
+body:has(.manual-grid) .wsu-wrapper-global {
 	overflow: visible !important;
 }
 
@@ -234,7 +245,8 @@ div.manual-grid nav.manual-toc {
 }
 
 /* Section format - override when data-manual-type="section" */
-.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h1::before {
+.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h1::before,
+.manual-grid[data-manual-type="policy"][data-numbering-mode="css-counters"] .manual h1::before {
 	content: "Section " counter(manual-chapter) ". " !important;
 }
 
@@ -253,7 +265,8 @@ div.manual-grid nav.manual-toc {
 }
 
 /* Section format - use decimal numerals for chapter counter */
-.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h2::before {
+.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h2::before,
+.manual-grid[data-manual-type="policy"][data-numbering-mode="css-counters"] .manual h2::before {
 	content: counter(manual-chapter) "." counter(manual-section) " " !important;
 }
 
@@ -272,7 +285,8 @@ div.manual-grid nav.manual-toc {
 }
 
 /* Section format - use decimal numerals for chapter counter */
-.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h3::before {
+.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h3::before,
+.manual-grid[data-manual-type="policy"][data-numbering-mode="css-counters"] .manual h3::before {
 	content: counter(manual-chapter) "." counter(manual-section) "." counter(manual-subsection) " " !important;
 }
 
@@ -291,7 +305,8 @@ div.manual-grid nav.manual-toc {
 }
 
 /* Section format - use decimal numerals for chapter counter */
-.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h4::before {
+.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h4::before,
+.manual-grid[data-manual-type="policy"][data-numbering-mode="css-counters"] .manual h4::before {
 	content: counter(manual-chapter) "." counter(manual-section) "." counter(manual-subsection) "." counter(manual-subsubsection) " " !important;
 }
 
@@ -437,7 +452,8 @@ div.manual-grid nav.manual-toc {
 }
 
 /* Section format - use decimal numerals for chapter counter */
-.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h5::before {
+.manual-grid[data-manual-type="section"][data-numbering-mode="css-counters"] .manual h5::before,
+.manual-grid[data-manual-type="policy"][data-numbering-mode="css-counters"] .manual h5::before {
 	content: counter(manual-chapter) "." counter(manual-section) "." counter(manual-subsection) "." counter(manual-subsubsection) "." counter(manual-subsubsubsection) " " !important;
 }
 
@@ -446,7 +462,8 @@ div.manual-grid nav.manual-toc {
 	content: "Chapter " counter(manual-chapter) ". " !important;
 }
 
-.manual-grid[data-heading-offset="1"][data-manual-type="section"][data-numbering-mode="css-counters"] .manual h2::before {
+.manual-grid[data-heading-offset="1"][data-manual-type="section"][data-numbering-mode="css-counters"] .manual h2::before,
+.manual-grid[data-heading-offset="1"][data-manual-type="policy"][data-numbering-mode="css-counters"] .manual h2::before {
 	content: "Section " counter(manual-chapter) ". " !important;
 }
 
@@ -978,6 +995,31 @@ div.manual-grid nav.manual-toc {
 	border: 1px solid #ddd;
 }
 
+/* Header cells own their full appearance — background included.
+   The rules above force `color:#000; font-weight:400` on every cell. Where the
+   host theme paints bare `th` (the WSU Design System fills it crimson,
+   #DC143C), that produced black 400-weight text on crimson: 4.21:1, below the
+   4.5:1 WCAG AA minimum, and visually flat. Setting the background here makes
+   the header deterministic on any host theme instead of inheriting an unknown
+   one. Session table themes (build_theme_css) use the same selector with
+   !important and are appended after this file, so the Table Review settings
+   still win when they are installed. */
+.manual table thead th,
+.manual-grid .manual table thead th {
+	background-color: #f5f5f5 !important;
+	color: #000 !important;
+	font-weight: 700 !important;
+}
+
+/* Table caption: rendered from a full-width title row (see format_manual_tables) */
+.manual table caption {
+	caption-side: top !important;
+	text-align: left !important;
+	font-weight: 700 !important;
+	color: #000 !important;
+	padding: .5rem 0 !important;
+}
+
 /* Crimson hyperlinks — WSU branding */
 .manual a {
 	color: #A60F2D !important;
@@ -1092,4 +1134,111 @@ body .manual-grid .manual ul > li::before {
 
 .manual-grid .manual ul ul ul {
 	list-style-type: square !important;
+}
+
+/* ====================================================
+   Print — WCAG-friendly paper / "Print to PDF" output
+   ====================================================
+   The manual is a policy document people print. Without these rules the
+   sidebar TOC, the search box, the skip link and the back-to-top button all
+   print; collapsed TOC branches print collapsed; table headers do not repeat
+   across page breaks; and external link targets are invisible on paper. */
+@media print {
+	/* Interactive chrome has no meaning on paper */
+	.manual-grid .manual-toc,
+	.skip-to-main,
+	.manual-search,
+	.manual-search-results,
+	.manual-search-status,
+	.manual-back-to-top,
+	.heading-link-icon {
+		display: none !important;
+	}
+
+	/* Single column, full width — the grid's TOC column is gone */
+	.manual-grid,
+	.manual-grid.gspp-manual {
+		display: block !important;
+		grid-template-columns: none !important;
+		padding: 0 !important;
+		margin: 0 !important;
+	}
+
+	.manual-grid .manual {
+		grid-column: auto !important;
+		width: 100% !important;
+		max-width: 100% !important;
+		padding: 0 !important;
+		margin: 0 !important;
+	}
+
+	/* Ink-friendly and higher contrast than screen crimson on white */
+	.manual,
+	.manual *,
+	.manual table th,
+	.manual table td {
+		color: #000 !important;
+		background: transparent !important;
+	}
+
+	.manual table thead th {
+		background-color: #eee !important;
+		color: #000 !important;
+	}
+
+	/* Repeat header rows on every page of a long table (WCAG 1.3.1 on paper) */
+	.manual table {
+		border-collapse: collapse !important;
+		width: 100% !important;
+	}
+
+	.manual table thead {
+		display: table-header-group !important;
+	}
+
+	.manual table tfoot {
+		display: table-footer-group !important;
+	}
+
+	/* Do not split rows, headings, or short blocks across pages */
+	.manual tr,
+	.manual img,
+	.manual blockquote {
+		break-inside: avoid !important;
+		page-break-inside: avoid !important;
+	}
+
+	.manual h1,
+	.manual h2,
+	.manual h3,
+	.manual h4,
+	.manual h5,
+	.manual h6 {
+		break-inside: avoid !important;
+		break-after: avoid !important;
+		page-break-after: avoid !important;
+	}
+
+	/* A heading with no following content is a widow — keep 2 lines together */
+	.manual p,
+	.manual li {
+		orphans: 2 !important;
+		widows: 2 !important;
+	}
+
+	/* Underline links and spell out external targets; internal #anchors would
+	   print as meaningless fragments, so only expand absolute URLs. */
+	.manual a {
+		text-decoration: underline !important;
+	}
+
+	.manual a[href^="http"]::after {
+		content: " (" attr(href) ")";
+		font-size: 90%;
+		word-break: break-all;
+	}
+
+	@page {
+		margin: 0.75in;
+	}
 }
