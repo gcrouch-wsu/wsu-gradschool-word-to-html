@@ -62,23 +62,39 @@ def default_theme_settings(manual_type: str = "chapter", theme_id: str | None = 
         "table_row_stripe_color": "#f9fafb",
         # {table index (str): header mode} — see html_processor.TABLE_HEADER_MODES
         "table_headers": {},
+        # {table index (str): alignment mode} — per-table override of
+        # table_align_mode, which is otherwise document-wide
+        "table_aligns": {},
     }
 
 _TABLE_HEADER_MODES = ("auto", "first_row", "title_row", "none")
 _TABLE_HEADER_FIELD_RE = re.compile(r"^table_header_mode_(\d+)$")
 
+TABLE_ALIGN_MODES = (
+    "auto", "left_all", "center_all", "right_all", "right_numeric", "auto_skip_first",
+)
+_TABLE_ALIGN_FIELD_RE = re.compile(r"^table_align_mode_(\d+)$")
 
-def _coerce_table_headers(value) -> dict:
-    """Keep only {digit-string: known mode} pairs."""
+
+def _coerce_indexed_modes(value, allowed: tuple) -> dict:
+    """Keep only {digit-string: known mode} pairs; "auto" is the default, not stored."""
     if not isinstance(value, dict):
         return {}
     cleaned = {}
     for key, mode in value.items():
         key = str(key).strip()
         mode = str(mode).strip().lower()
-        if key.isdigit() and mode in _TABLE_HEADER_MODES and mode != "auto":
+        if key.isdigit() and mode in allowed and mode != "auto":
             cleaned[key] = mode
     return cleaned
+
+
+def _coerce_table_headers(value) -> dict:
+    return _coerce_indexed_modes(value, _TABLE_HEADER_MODES)
+
+
+def _coerce_table_aligns(value) -> dict:
+    return _coerce_indexed_modes(value, TABLE_ALIGN_MODES)
 
 
 _ALIGN_KEYS = frozenset({
@@ -203,6 +219,8 @@ def coerce_theme_settings(
             settings[key] = _sanitize_font_family(val, settings[key])
         elif key == "table_headers":
             settings[key] = _coerce_table_headers(val)
+        elif key == "table_aligns":
+            settings[key] = _coerce_table_aligns(val)
         else:
             settings[key] = val
 
@@ -210,16 +228,22 @@ def coerce_theme_settings(
     # rather than a nested dict, so collect those separately. Only do it when
     # the form actually carried them: the preview theme panel posts a partial
     # form and must not wipe choices made on the Table Review page.
-    posted_modes = {}
-    saw_mode_field = False
+    posted_headers, saw_header_field = {}, False
+    posted_aligns, saw_align_field = {}, False
     for raw_key, raw_val in raw_settings.items():
         match = _TABLE_HEADER_FIELD_RE.match(str(raw_key))
-        if not match:
+        if match:
+            saw_header_field = True
+            posted_headers[match.group(1)] = raw_val
             continue
-        saw_mode_field = True
-        posted_modes[match.group(1)] = raw_val
-    if saw_mode_field:
-        settings["table_headers"] = _coerce_table_headers(posted_modes)
+        match = _TABLE_ALIGN_FIELD_RE.match(str(raw_key))
+        if match:
+            saw_align_field = True
+            posted_aligns[match.group(1)] = raw_val
+    if saw_header_field:
+        settings["table_headers"] = _coerce_table_headers(posted_headers)
+    if saw_align_field:
+        settings["table_aligns"] = _coerce_table_aligns(posted_aligns)
 
     return _finalize_theme_settings(settings, warnings)
 
@@ -248,6 +272,7 @@ def _finalize_theme_settings(settings: dict, warnings: list[str]) -> tuple[dict,
     for bk in _BOOL_KEYS:
         settings[bk] = bool(settings.get(bk))
     settings["table_headers"] = _coerce_table_headers(settings.get("table_headers"))
+    settings["table_aligns"] = _coerce_table_aligns(settings.get("table_aligns"))
     return settings, warnings
 
 

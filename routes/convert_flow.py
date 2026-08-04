@@ -1049,7 +1049,11 @@ def table_review(session_id):
     table_source = html_path if (html_import and html_path.exists()) else session.temp_html
     if table_source.exists():
         detected_cols = max_columns_in_first_table(table_source)
-    tables = describe_tables(table_source, theme_settings.get("table_headers"))
+    tables = describe_tables(
+        table_source,
+        theme_settings.get("table_headers"),
+        theme_settings.get("table_aligns"),
+    )
     sw_bg = wsu_swatch_buttons_html("table_header_bg")
     sw_hc = wsu_swatch_buttons_html("table_header_color")
     sw_bc = wsu_swatch_buttons_html("table_border_color")
@@ -1236,6 +1240,7 @@ def do_convert(session_id):
             'table_coln_align': theme_settings.get('table_coln_align'),
             'table_header_align': theme_settings.get('table_header_align'),
             'table_headers': theme_settings.get('table_headers', {}),
+            'table_aligns': theme_settings.get('table_aligns', {}),
             'references': original_references,
             'reference_edits': reference_edits,
             'reference_validations': reference_validations,

@@ -78,13 +78,29 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
           <tr><th scope="row">Then</th><td>{{ t.second_body_cells|join(' | ') }}</td></tr>
           {% endif %}
         </table>
-        <label for="table_header_mode_{{ t.index }}">Treat the first row as</label>
-        <select id="table_header_mode_{{ t.index }}" name="table_header_mode_{{ t.index }}">
-          <option value="auto" {{ 'selected' if t.mode == 'auto' }}>Automatic (recommended)</option>
-          <option value="first_row" {{ 'selected' if t.mode == 'first_row' }}>Column headers</option>
-          <option value="title_row" {{ 'selected' if t.mode == 'title_row' }}>A title &rarr; caption, next row is the header</option>
-          <option value="none" {{ 'selected' if t.mode == 'none' }}>Ordinary data (no header row)</option>
-        </select>
+        <div class="row">
+          <div>
+            <label for="table_header_mode_{{ t.index }}">Treat the first row as</label>
+            <select id="table_header_mode_{{ t.index }}" name="table_header_mode_{{ t.index }}">
+              <option value="auto" {{ 'selected' if t.mode == 'auto' }}>Automatic (recommended)</option>
+              <option value="first_row" {{ 'selected' if t.mode == 'first_row' }}>Column headers</option>
+              <option value="title_row" {{ 'selected' if t.mode == 'title_row' }}>A title &rarr; caption, next row is the header</option>
+              <option value="none" {{ 'selected' if t.mode == 'none' }}>Ordinary data (no header row)</option>
+            </select>
+          </div>
+          <div>
+            <label for="table_align_mode_{{ t.index }}">Alignment for this table</label>
+            <select id="table_align_mode_{{ t.index }}" name="table_align_mode_{{ t.index }}">
+              <option value="auto" {{ 'selected' if t.align_mode == 'auto' }}>Automatic &mdash; centre numeric columns</option>
+              <option value="auto_skip_first" {{ 'selected' if t.align_mode == 'auto_skip_first' }}>Automatic, but always left-align column 1</option>
+              <option value="left_all" {{ 'selected' if t.align_mode == 'left_all' }}>Left-align everything</option>
+              <option value="center_all" {{ 'selected' if t.align_mode == 'center_all' }}>Centre everything</option>
+              <option value="right_all" {{ 'selected' if t.align_mode == 'right_all' }}>Right-align everything</option>
+              <option value="right_numeric" {{ 'selected' if t.align_mode == 'right_numeric' }}>Right-align numeric columns</option>
+            </select>
+            <small class="small">Whole columns are aligned together, so a footnote marker or &ldquo;3 or more&rdquo; stays in line with the numbers above it. The Column 1&ndash;4+ settings below override this.</small>
+          </div>
+        </div>
       </div>
       {% endfor %}
     </section>

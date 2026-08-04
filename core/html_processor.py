@@ -623,19 +623,23 @@ def format_manual_tables(
     *,
     col2_align: str | None = None,
     col3_align: str | None = None,
+    align_overrides: dict | None = None,
 ):
     if isinstance(soup_or_html, str):
         soup = BeautifulSoup(soup_or_html, _HTML_PARSER)
         _format_manual_tables_impl(
-            soup, align_mode, col1_align, col2_align, col3_align, coln_align, header_align
+            soup, align_mode, col1_align, col2_align, col3_align, coln_align, header_align,
+            align_overrides,
         )
         return str(soup)
     _format_manual_tables_impl(
-        soup_or_html, align_mode, col1_align, col2_align, col3_align, coln_align, header_align
+        soup_or_html, align_mode, col1_align, col2_align, col3_align, coln_align, header_align,
+        align_overrides,
     )
 
 
-def describe_tables(html_path, overrides: dict | None = None) -> list[dict]:
+def describe_tables(html_path, overrides: dict | None = None,
+                    align_overrides: dict | None = None) -> list[dict]:
     """Summarize each table for the Table Review step.
 
     Returns the first two rows as text so the operator can see which row the
@@ -643,6 +647,7 @@ def describe_tables(html_path, overrides: dict | None = None) -> list[dict]:
     title row or an ordinary data row in ``<thead>``.
     """
     overrides = {str(k): str(v) for k, v in (overrides or {}).items()}
+    align_overrides = {str(k): str(v) for k, v in (align_overrides or {}).items()}
     try:
         path = Path(html_path)
         if not path.is_file():
@@ -669,6 +674,7 @@ def describe_tables(html_path, overrides: dict | None = None) -> list[dict]:
         described.append({
             "index": index,
             "mode": overrides.get(str(index), "auto"),
+            "align_mode": align_overrides.get(str(index), "auto"),
             "columns": columns,
             "row_count": len(table.find_all('tr')),
             "caption": caption.get_text(" ", strip=True) if caption else "",
@@ -712,8 +718,10 @@ def _format_manual_tables_impl(
     col3_align: str | None = None,
     coln_align: str | None = None,
     header_align: str | None = None,
+    align_overrides: dict | None = None,
 ) -> None:
-    mode = (align_mode or "auto").strip().lower()
+    default_mode = (align_mode or "auto").strip().lower()
+    overrides = {str(k): str(v).strip().lower() for k, v in (align_overrides or {}).items()}
     def norm_align(v: str | None) -> str | None:
         if v is None:
             return None
@@ -727,7 +735,7 @@ def _format_manual_tables_impl(
     cn = norm_align(coln_align)
     ha = norm_align(header_align)
 
-    def auto_align(idx: int, num: bool) -> str:
+    def auto_align(mode: str, idx: int, num: bool) -> str:
         if mode == "left_all":
             return "left"
         if mode == "center_all":
@@ -740,7 +748,7 @@ def _format_manual_tables_impl(
             return "left" if idx == 0 else ("center" if num else "left")
         return "center" if num else "left"
 
-    def pick_col_align(idx: int, num: bool) -> str:
+    def pick_col_align(mode: str, idx: int, num: bool) -> str:
         if idx == 0 and c1 is not None:
             return c1
         if idx == 1 and c2 is not None:
@@ -749,16 +757,42 @@ def _format_manual_tables_impl(
             return c3
         if idx >= 3 and cn is not None:
             return cn
-        return auto_align(idx, num)
+        return auto_align(mode, idx, num)
 
     def is_num(t):
         if not t: return True
         t = t.strip(); normalized = re.sub(r'[\s$,%\u00a0\u2013\u2014]', '', t)
         return bool(re.match(r'^-?[\d,.]+$', normalized))
+    def numeric_columns(table: Tag) -> dict[int, bool]:
+        """Classify each column once, from its body cells as a whole.
+
+        Alignment used to be decided per *cell*, so a column holding "3", "12",
+        "3*" and "3 or more" came out half centered and half left — the cells
+        carrying a footnote marker fell out of line with their own column. A
+        column counts as numeric when at least half of its non-empty body cells
+        are numeric, and then every cell in it gets the same alignment.
+        """
+        counts: dict[int, list[int]] = {}
+        for row in table.find_all('tr'):
+            if row.parent is not None and row.parent.name == 'thead':
+                continue
+            for idx, cell in enumerate(row.find_all(['th', 'td'])):
+                text = cell.get_text().strip()
+                if not text:
+                    continue
+                seen, numeric = counts.get(idx, (0, 0))
+                counts[idx] = (seen + 1, numeric + (1 if is_num(text) else 0))
+        return {
+            idx: (numeric > 0 and numeric * 2 >= seen)
+            for idx, (seen, numeric) in counts.items()
+        }
+
     def apply_align(tag, a):
         s = tag.get('style', ''); s = re.sub(r'(?i)text-align\s*:\s*[^;]+\s*(!important)?\s*;?', '', s).strip()
         tag['style'] = f"{s}{';' if s and not s.endswith(';') else ''} text-align: {a} !important;"
-    for table in soup.find_all('table'):
+    for table_index, table in enumerate(soup.find_all('table')):
+        mode = overrides.get(str(table_index)) or default_mode
+        col_is_numeric = numeric_columns(table)
         # WCAG 1.3.1: add scope to th elements for screen reader table navigation
         for th in table.find_all('th'):
             if not th.get('scope'):
@@ -773,11 +807,11 @@ def _format_manual_tables_impl(
             cells = row.find_all(['th', 'td'])
             in_thead = row.parent and row.parent.name == 'thead'
             for idx, td in enumerate(cells):
-                num = is_num(td.get_text().strip())
+                num = col_is_numeric.get(idx, False)
                 if in_thead and td.name == "th" and ha:
                     a = ha
                 else:
-                    a = pick_col_align(idx, num)
+                    a = pick_col_align(mode, idx, num)
                 td['class'] = [c for c in (td.get('class', []) if isinstance(td.get('class', []), list) else td.get('class', '').split()) if not c.startswith("manual-align-")] + [f"manual-align-{a}"]
                 apply_align(td, a)
                 for child in td.find_all(['p', 'span']): apply_align(child, a)
@@ -1710,6 +1744,7 @@ def process_html_pipeline(html_content: str, session_id: str, config: dict) -> t
         config.get('table_col3_align'),
         config.get('table_coln_align'),
         config.get('table_header_align'),
+        config.get('table_aligns'),
     )
     if config.get('references'):
         # Resolve anchors from *final* live heading ids (after strip/map/edits),
@@ -1830,7 +1865,11 @@ def build_manual_grid_block(
     it is injected inside ``<nav>``; otherwise an empty ``<ul>`` is emitted for
     client-side TOC population (``wordpress.js``).
     """
-    body_html = format_manual_tables(body_html)
+    # NOTE: do not re-run format_manual_tables here. `body_html` has already been
+    # aligned by process_html_pipeline using the session's Table Review settings,
+    # and re-running with this function's defaults silently overwrote them —
+    # every column alignment an operator chose was discarded in the preview and
+    # in every download, so the setting appeared to do nothing at all.
 
     # These land in HTML attributes and can arrive from an imported document's
     # own grid metadata, so constrain them rather than interpolating raw:
