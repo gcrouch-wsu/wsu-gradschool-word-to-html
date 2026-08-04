@@ -1144,27 +1144,49 @@ body .manual-grid .manual ul > li::before {
    print; collapsed TOC branches print collapsed; table headers do not repeat
    across page breaks; and external link targets are invisible on paper. */
 @media print {
-	/* Interactive chrome has no meaning on paper */
+	/* NOTE ON SELECTORS IN THIS BLOCK
+	   Everything above is written scoped + !important to beat WordPress
+	   themes. Between two !important declarations the cascade is decided by
+	   specificity, so a print rule must match or exceed the specificity of the
+	   rule it overrides — a flat selector here silently loses and the element
+	   prints anyway. Each group below mirrors the selector of its counterpart
+	   above; do not "simplify" them. */
+
+	/* Interactive chrome has no meaning on paper.
+	   The back-to-top button is an id (#manual-back-to-top, not a class), and
+	   the heading copy-link icon is set to display:inline-flex !important by
+	   `.manual .heading-link-icon`, so both need their own specificity. */
 	.manual-grid .manual-toc,
 	.skip-to-main,
 	.manual-search,
 	.manual-search-results,
 	.manual-search-status,
-	.manual-back-to-top,
-	.heading-link-icon {
+	#manual-back-to-top,
+	.manual .heading-link-icon {
 		display: none !important;
 	}
 
-	/* Single column, full width — the grid's TOC column is gone */
+	/* Single column, full width — the grid's TOC column is gone.
+	   Mirrors the grid selector list above, including the `body .manual-grid`
+	   rule that pulls the grid left by -20px on screen. */
 	.manual-grid,
-	.manual-grid.gspp-manual {
+	.manual-grid.gspp-manual,
+	div.manual-grid,
+	.wp-block-html .manual-grid,
+	body .manual-grid,
+	.wp-site-blocks .manual-grid,
+	.wp-block-group .manual-grid {
 		display: block !important;
 		grid-template-columns: none !important;
+		width: 100% !important;
+		max-width: 100% !important;
 		padding: 0 !important;
 		margin: 0 !important;
 	}
 
-	.manual-grid .manual {
+	.manual-grid .manual,
+	.gspp-manual .manual,
+	div.manual-grid div.manual {
 		grid-column: auto !important;
 		width: 100% !important;
 		max-width: 100% !important;
@@ -1181,7 +1203,9 @@ body .manual-grid .manual ul > li::before {
 		background: transparent !important;
 	}
 
-	.manual table thead th {
+	/* Matches `.manual-grid .manual table thead th` above (0,2,3). */
+	.manual table thead th,
+	.manual-grid .manual table thead th {
 		background-color: #eee !important;
 		color: #000 !important;
 	}
@@ -1226,11 +1250,21 @@ body .manual-grid .manual ul > li::before {
 		widows: 2 !important;
 	}
 
-	/* Underline links and spell out external targets; internal #anchors would
-	   print as meaningless fragments, so only expand absolute URLs. */
+	/* Links: ONE underline. `.manual a` above draws its underline with
+	   `border-bottom` and sets `text-decoration: none`; adding
+	   `text-decoration: underline` here stacked a second line on top of it and
+	   printed every link double-underlined. Keep the border as the single
+	   underline and take it to black so a greyscale print does not render
+	   crimson links as washed-out grey. Same specificity as the rule above, and
+	   later in the file, so this wins. */
 	.manual a {
-		text-decoration: underline !important;
+		color: #000 !important;
+		text-decoration: none !important;
+		border-bottom: 1px solid #000 !important;
 	}
+
+	/* Spell out external targets; internal #anchors would print as meaningless
+	   fragments, so only expand absolute URLs. */
 
 	.manual a[href^="http"]::after {
 		content: " (" attr(href) ")";

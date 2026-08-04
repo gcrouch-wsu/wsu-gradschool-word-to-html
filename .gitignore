@@ -11,7 +11,7 @@ archive/
 # policy manuals (or a site's deployed assets) and must never land in the repo.
 # Note *.docx above does NOT cover a DOCX carried inside a session bundle, which
 # is why the zip pattern is listed separately.
-*_session.zip
+*_session*.zip
 manual_fragment*.html
 manual_standalone*.html
 *.session.json
