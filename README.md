@@ -15,6 +15,7 @@ For the authoritative description of the architecture, module layout, security m
 - **Intended round-trip editing workflow** — exports a clean DOCX for the next Word editing cycle and supports heading-map-based permalink continuity; known limitations are handled through structured review steps in the app
 - **Searchable TOC** — JavaScript-powered table of contents with live search, scrollspy, and keyboard navigation
 - **Reference crosswalk** — converts legacy heading references (Roman numerals, letters) to numeric format
+- **Print-ready** — the exported CSS includes a print stylesheet, so browser Print / Save as PDF drops the sidebar TOC and search box, repeats table headers across page breaks, and prints external link targets
 - **Local-first runtime with a Railway/Docker deployment path** — treat internet-facing deployment as a separate hardening exercise (secrets, CSRF, container `PORT`, ZIP/session limits); validate against your own checklist before going public
 
 ---
@@ -92,7 +93,7 @@ This companion tool is local-only in the current project scope. See `README_conf
 
 1. Upload your DOCX file
 2. Configure settings: heading mapping mode (map to new numeric headings, or keep original), TOC depth, and whether to keep heading numbers in text. (Manual type — chapter vs. section — is detected automatically from the document.)
-3. Optionally check "Edit tables" to review table formatting
+3. Optionally check "Edit tables" to review table formatting and header rows
 4. Click Upload and process through the review screens (headings, references, tables)
 5. Click "Proceed with Conversion"
 6. Download your outputs:
@@ -115,7 +116,10 @@ This companion tool is local-only in the current project scope. See `README_conf
 
 ### WordPress Deployment
 
-1. Add the **CSS** as site-level custom CSS (Appearance → Customize → Additional CSS, or a custom CSS plugin)
+1. Add the **CSS** as site-level custom CSS (Appearance → Customize → Additional CSS, or a custom CSS plugin).
+   - **Append, don't replace.** If the site already has unrelated custom CSS in that box, paste the manual stylesheet *below* it — replacing the whole box deletes the site's own fixes.
+   - The stylesheet is page-agnostic: it targets `body:has(.manual-grid)`, so publishing a second manual on a different page needs no CSS edit.
+   - It includes a print stylesheet, so browser **Print / Save as PDF** drops the sidebar TOC, search box, and back-to-top button, repeats table headers across pages, and prints external link targets.
 2. Add the **JS** as either:
    - **Site-level JS** (no wrappers needed), or
    - **Code snippet** — must be wrapped in `<script>` tags
@@ -144,8 +148,8 @@ config.py                       SessionDir, PERSIST_DIR, env-backed settings
 wordpress.css                   WordPress stylesheet (WCAG 2.1 AA)
 wordpress.js                    WordPress script (TOC, search, scrollspy, list normalization)
 core/
-  permalinks.py                 Heading signature normalization, SPELLED_NUMS
-  html_processor.py             HTML pipeline, Hybrid Rule, heading IDs, grid block builder
+  permalinks.py                 Heading signatures, ref normalization, manual_type prefix
+  html_processor.py             HTML pipeline, Hybrid Rule, heading IDs, table headers, grid block
   manual_structure.py           Heading scraping, crosswalk, numbering conversion
   reference_linking.py          Reference extraction (6-tuple), external link extraction
   docx_processor.py             DOCX preprocessing, numbering, style maps
@@ -153,7 +157,7 @@ core/
   pandoc_wrapper.py             Pandoc invocation
 utils/
   helpers.py                    roman_to_int, normalize_hex_color, clamp_number, sanitize_theme_id
-  url_policy.py                 External href allowlist for export / DOCX links
+  url_policy.py                 External href allowlist (output) + input normalization
 templates/                      Jinja templates (home, instructions, heading/reference/table review)
 scripts/                        Standalone maintainer utilities (see scripts/README.md)
 tests/                          Pytest suite (`python -m pytest tests/ -q`)
@@ -235,5 +239,7 @@ The crosswalk system converts old-style heading references (Roman numerals, lett
 | 405 Method Not Allowed on conversion | Clear browser cache — this was a fixed bug |
 | Search doesn't show on WordPress | Update the JS code snippet with the latest version from `wordpress.js` |
 | Tables not editable | Check "Edit tables" checkbox on the upload form before uploading |
+| Table header row is wrong | Word decides which row lands in `<thead>` and is often wrong. In Table Review, set that table to **Column headers**, **Title → caption**, or **Ordinary data** |
+| An External URL wasn't saved | Only `http(s)`, `mailto:`, and `#anchor` links are stored. A bare host like `policies.wsu.edu/x` is promoted to `https://` automatically; anything else is reported in a warning after saving |
 | Heading map not loading | Attach the `.json` via the file picker, or paste its contents in the Advanced section — either works (if both are filled, the pasted text wins) |
 | Session data lost | Sessions live in temp — restart doesn't clear them, but OS cleanup might |

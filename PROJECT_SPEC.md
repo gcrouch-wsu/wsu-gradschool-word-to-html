@@ -166,6 +166,11 @@ authentication is enabled (§8), every endpoint except `/login`, `/logout`,
    auto-match old→new references (`map_new` mode) or build an identity crosswalk
    (`keep_old` mode).
 4. **Review steps**: heading crosswalk → references → (optional) table review.
+   Table review covers alignment/theme *and* header-row designation: Word
+   decides which row lands in `<thead>` and is often wrong, so each table can be
+   set to `auto` (default), `first_row`, `title_row`, or `none`
+   (`core/html_processor.TABLE_HEADER_MODES`, stored in
+   `theme_settings["table_headers"]` keyed by table position).
 5. **Convert** (`do_convert`): run the unified single-pass BeautifulSoup
    pipeline (`process_html_pipeline`), build the accessible grid block, write the
    export artifacts, regenerate the DOCX, and render the preview.
@@ -312,7 +317,23 @@ restarts the process and sessions are short-lived temp directories.
   `sanitize_manual_html_fragment` (bleach) with an allowlist of tags/attributes,
   `http`/`https`/`mailto` protocols, and a `CSSSanitizer` (tinycss2) permitting
   only the two inline properties the pipeline emits (`list-style-type`,
-  `text-align`).
+  `text-align`). The allowlist deliberately admits five `data-*` attributes on
+  `div` (`data-toc-depth`, `data-manual-type`, `data-numbering-mode`,
+  `data-heading-offset`, `data-theme`): the exporter stamps the manual's own
+  settings onto `.manual-grid` and `extract_manual_fragment` reads them back on
+  import. Stripping them silently discarded every exported setting — most
+  damagingly `data-heading-offset`, so a re-imported fragment never undid its
+  +1 heading shift. **The values are untrusted** and are re-validated on read:
+  `build_manual_grid_block` collapses `manual_type` to `chapter|section`,
+  constrains `numbering_mode` to its enum, and clamps the integers, so a crafted
+  import cannot break out of the attribute.
+- **External URL input** (`utils/url_policy`) is two layers, kept separate:
+  `is_safe_href`/`sanitize_external_href` are the strict output gate and never
+  rewrite a value; `normalize_external_href` is used only where a human types a
+  URL, promoting scheme-less hosts (`policies.wsu.edu/x`) and
+  protocol-relative URLs to https. A value carrying its own scheme is never
+  rewritten, so `javascript:` is refused rather than converted. Anything still
+  refused is reported to the operator instead of being dropped silently.
 - **External hrefs**: links surfaced in the review UI and applied to exports are
   filtered through `utils/url_policy.is_safe_href` (internal anchors, http(s),
   mailto only); unsafe schemes (`javascript:`, `data:`, …) are dropped/rendered
@@ -408,7 +429,7 @@ html_processor and docx_processor are behaviorally identical.
 
 ## 13. Testing
 
-`python -m pytest tests/ -q` — **131 tests.** Runtime deps in
+`python -m pytest tests/ -q` — **197 tests.** Runtime deps in
 `requirements.txt`; test deps add `pytest` via `requirements-dev.txt`. CI
 (`.github/workflows/ci.yml`) installs the pinned Pandoc and the ranged
 requirements and runs the suite on every push to `main` and every PR.
@@ -418,8 +439,16 @@ Coverage by area:
 - **Unit/pipeline**: heading-prefix stripping and three-way regex parity;
   crosswalk numbering conversion and auto-matching; permalink signatures;
   duplicate-aware stable map (idempotency, legacy back-compat); HTML
-  sanitization; URL policy; manual-grid/fragment building; config-generator
+  sanitization; URL policy and external-URL input normalization;
+  manual-grid/fragment building; manual-type prefix agreement across all call
+  sites; table header-row repair and per-table overrides; config-generator
   dedup (same-object assertions); Pandoc version comparison.
+- **Reference linking** (`test_reference_linking_defects.py`, reduced from real
+  Faculty Manual paragraphs): a repeated label in one paragraph links every
+  copy; a short label does not match inside a longer one; a label ending a
+  sentence still matches; a Word cross-reference field covering only part of a
+  label is absorbed; a stale `#anchor` in the External URL field falls back to
+  the resolved anchor rather than deleting the link.
 - **Routes/e2e** (Pandoc required; skipped with the detected version named if the
   installed Pandoc is older than the pin): full upload→review→convert→download
   flow across all download kinds; permalink stability across two conversions;
@@ -480,6 +509,19 @@ version matches `PANDOC_PINNED_VERSION` (no "older than pinned" warning);
   an optional `reference_doc` parameter, but no app flow passes one.
 - **Some WordPress theme list-marker behavior is corrected in `wordpress.js`
   after load** (`forceListStyles`), which can cause brief visible flicker.
+- **`manual_type` has three detected values, not two.** `preprocess_docx` emits
+  `"policy"` for any document whose first 20 paragraphs mention policies or
+  procedures — the Faculty Manual and GSPP both match. Policy manuals label
+  their top level "Section N", so it resolves like `"section"`. Never branch on
+  `manual_type` directly: use `core/permalinks.manual_prefix()` /
+  `is_section_style()` / `normalize_manual_type()`. Five call sites once decided
+  this independently and disagreed (§19).
+- **Table header cells own their own background** in `wordpress.css`. The
+  stylesheet forces `color:#000; font-weight:400` on manual cells, so inheriting
+  a host theme's `th` background produced unreadable combinations (WSU's design
+  system fills bare `th` crimson → 4.21:1, below AA). Do not remove the explicit
+  `background-color` on `.manual table thead th` without also relaxing the
+  colour forcing above it.
 
 ### Future candidates (none urgent, nothing blocking)
 
@@ -852,3 +894,93 @@ enabled with a strong `FLASK_SECRET_KEY`. The two §17 blockers (high-severity
 findings 1 and 2) are fixed and regression-tested, and the medium correctness/
 hardening items (3–6) are resolved. The standing caveats above are operational/
 product validation, not code defects.
+
+---
+
+## 19. Production-output fixes (2026-08-04)
+
+Driven by the first real publication (WSU Faculty Manual, `facsen.wsu.edu`).
+Every defect below was reproduced from the live output or its session bundle,
+fixed, and covered by a regression test built from the real paragraphs. Suite
+grew 137 → 197.
+
+### Reference linking (`core/html_processor.py`)
+
+1. **A label repeated in one paragraph linked only once.** `_replace_ref_in_block`
+   always replaced the first match, so "…for Patents, Section IV.G.8, or for
+   Plant Varieties, Section IV.G.9…" linked one of each pair and left the rest
+   as plain text. Work items now carry an `occurrence` index (computed over
+   *all* detected references, not just approved ones, so the ordinal matches the
+   text). Callers still process in descending `(paragraph, start)` order, which
+   keeps the index stable — replacing a later occurrence cannot shift an earlier
+   one. 5 links recovered in the Faculty Manual.
+2. **A short label matched inside a longer one.** "Section II.F" matched within
+   "Section II.F.6", linking the wrong section. Added `_REF_LEAD_GUARD` /
+   `_REF_TAIL_GUARD` (`_guarded_ref_regex`) to every matcher, including
+   `_find_reference_block`'s substring tests and both legacy fallbacks
+   (`_replace_reference_first_occurrence`, `_replace_reference_at_offset`) which
+   were still doing raw `in` matching. The tail guard is `(?!\.?\w)` so a label
+   ending a sentence ("… in Section II.F.6.") still matches.
+3. **Word cross-reference fields that cover only part of a label.** In the
+   source DOCX the field wrapped "Section II.F" and the author typed ".6"
+   outside it; Pandoc reproduces the split faithfully, so the anchor pointed at
+   the wrong section with ".6" stranded beside it. `_absorb_split_reference_anchor`
+   pulls the remainder inside the anchor and retargets it. **This is a source
+   document artifact** — the repair is cosmetic-safe and logged at INFO.
+4. **A stale `#anchor` in the External URL field deleted the link.** The URL won
+   over the resolved anchor, built a link to a non-existent id, and
+   `_unwrap_dead_fragment_links` then stripped it — silently demoting the
+   reference to plain text. Internal anchors are now validated against the live
+   id set and fall back to the resolved anchor with a WARNING.
+
+Net effect on the Faculty Manual: 82 → **90 links (90/90 approved references)**,
+zero dead, mis-targeted, or truncated.
+
+### Table structure
+
+- A full-width single-cell `<thead>` row is a **title, not a header**: it becomes
+  `<caption>` and the row beneath is promoted to `<th scope="col">`. The
+  "Advance Notice Table" had no programmatic headers at all (WCAG 1.3.1).
+- A data row mis-promoted to `<thead>` cannot be detected reliably, so Table
+  Review now lists every table with its first rows and a per-table override
+  (§4). Ordering matters: `_normalize_table_headers_impl` runs *before*
+  `_format_manual_tables_impl`, which stamps `scope` on whatever it finds.
+
+### HTML import round trip
+
+- Sanitizer now admits the grid `data-*` attributes (§8).
+- The heading un-shift is **persisted**, not just applied to the in-memory
+  scrape copy — `do_convert` re-reads `import.html`, so writing only the scrape
+  copy left the conversion working from the still-shifted file. Fragment →
+  import → fragment is now idempotent in levels, anchor ids, and settings.
+
+### `manual_type`
+
+Single-sourced through `core/permalinks` (§15). `build_manual_grid_block` emits
+the normalized value so CSS and JS both understand it, and the stylesheet also
+matches `[data-manual-type="policy"]` so **already-published** pages pick up
+Section numbering.
+
+### `wordpress.css`
+
+- `thead th` owns its background (§15) — fixes 4.21:1 black-on-crimson.
+- Added `@media print`: hides TOC/search/back-to-top/skip link, single column,
+  repeats `thead` across pages, avoids splitting rows and headings, prints
+  external URLs after their links, `@page` margins.
+- Focus ring scoped to `.manual-grid`. It was unscoped in a stylesheet installed
+  site-wide, restyling every link and form control on the host site.
+- `body.page-id-43010` → `body:has(.manual-grid)`. The sticky-TOC overflow fix
+  was keyed to one WordPress page id, so every additional manual silently lost
+  it. `wordpress.js ensureStickyAncestors()` remains the runtime fallback.
+
+### Operator-facing
+
+External URL input is normalized and failures are reported (§8) — a scheme-less
+paste used to vanish from the field with no message.
+
+### Known-good deployment note
+
+`wordpress.css` changed, so the site stylesheet needs re-pasting. On
+`facsen.wsu.edu` the manual CSS sits **below ~83 lines of unrelated WSU site
+fixes** in Appearance → Additional CSS; replacing the whole box deletes them.
+`wordpress.js` is unchanged — the code snippet needs no update.
