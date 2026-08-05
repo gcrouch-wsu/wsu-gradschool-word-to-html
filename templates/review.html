@@ -52,9 +52,6 @@ button:hover { background: #7a1728; }
 .flash-message.success { background: #d1fae5; border-left-color: #10b981; color: #065f46; }
 .flash-message.error { background: #fee2e2; border-left-color: #ef4444; color: #991b1b; }
 .flash-message.info { background: #dbeafe; border-left-color: #3b82f6; color: #1e40af; }
-.debug-panel { background: #f3f4f6; border: 2px solid #9ca3af; padding: 12px; margin: 16px 0; border-radius: 8px; font-family: monospace; font-size: 12px; }
-.debug-panel summary { cursor: pointer; font-weight: 600; color: #374151; }
-.debug-panel pre { margin: 8px 0; overflow-x: auto; }
 </style>
 </head>
 <body>
@@ -84,19 +81,6 @@ button:hover { background: #7a1728; }
 {% if html_import %}<strong>Linked References Detected:</strong> {{ linked_ref_count }}<br><strong>Rebuild Links:</strong> {{ 'Yes' if rebuild_links else 'No' }}{% endif %}
 </div>
 
-<details class="debug-panel">
-<summary>&#128027; Debug Info (Click to expand)</summary>
-<p><strong>Session ID:</strong> {{ session_id }}</p>
-<p><strong>Edit File:</strong> {{ edit_file_name }}</p>
-<p><strong>Edit File Exists:</strong> {{ 'Yes' if edit_file_exists else 'No' }}</p>
-<p><strong>Loaded Validations Sample:</strong></p>
-<pre>{{ validations_sample }}</pre>
-<p><strong>Loaded Edits Sample:</strong></p>
-<pre>{{ edits_sample }}</pre>
-<p><strong>Headings Sample (first 5):</strong></p>
-<pre>{{ headings_sample }}</pre>
-<p><em>Open browser console (F12) and click "Save Edits" to see form data being submitted.</em></p>
-</details>
 
 <h2>Internal References Found</h2>
 <p>The following references to sections/chapters were found in the document body.</p>
@@ -342,52 +326,12 @@ Hide Reviewed Items
 </div>
 
 <div class="actions" style="display: flex; gap: 12px; align-items: center;">
-<button type="submit" name="save_edits" style="background: #0284c7;" onclick="debugForm(event, 'save_edits')">Save Edits</button>
+<button type="submit" name="save_edits" style="background: #0284c7;">Save Edits</button>
 <button type="submit" name="prev_page" style="background: #64748b;" {{ 'disabled' if page <= 1 }}>Save &amp; Previous</button>
 <button type="submit" name="next_page" style="background: #64748b;" {{ 'disabled' if page >= total_pages }}>Save &amp; Next</button>
-<button type="submit" name="proceed" style="background: #981E32;" onclick="debugForm(event, 'proceed')">Proceed with Conversion</button>
+<button type="submit" name="proceed" style="background: #981E32;">Proceed with Conversion</button>
 </div>
 </form>
-<script>
-function debugForm(event, action) {
-    const form = document.getElementById('reviewForm');
-    const formData = new FormData(form);
-    console.log('=== FORM SUBMISSION DEBUG ===');
-    console.log('Action:', action);
-
-    let checkedCount = 0;
-    let uncheckedCount = 0;
-    let editCount = 0;
-    let targetCount = 0;
-
-    for (let [key, value] of formData.entries()) {
-        if (key.startsWith('ref_valid_')) {
-            checkedCount++;
-            console.log('✓ Checked:', key, '=', value);
-        } else if (key.startsWith('ref_edit_')) {
-            if (value.trim()) {
-                editCount++;
-                console.log('✏️ Edit:', key, '=', value.substring(0, 30));
-            }
-        } else if (key.startsWith('ref_target_')) {
-            if (value.trim()) {
-                targetCount++;
-                console.log('🔗 Target:', key, '=', value.substring(0, 30));
-            }
-        }
-    }
-
-    // Count all checkboxes to find unchecked ones
-    const allCheckboxes = document.querySelectorAll('input[type="checkbox"][name^="ref_valid_"]');
-    uncheckedCount = allCheckboxes.length - checkedCount;
-
-    console.log('Summary: ' + checkedCount + ' checked, ' + uncheckedCount + ' unchecked, ' + editCount + ' edits, ' + targetCount + ' targets');
-    console.log('=== END DEBUG ===');
-
-    // Don't prevent submission
-    return true;
-}
-</script>
 <script>
 // Debug: Show checkbox status on page load
 window.addEventListener('DOMContentLoaded', function() {

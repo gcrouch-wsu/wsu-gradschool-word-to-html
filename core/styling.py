@@ -380,10 +380,13 @@ def build_table_theme_css(settings: dict) -> str:
 
 def build_theme_css(settings: dict) -> str:
     """Generate dynamic CSS based on theme settings."""
-    primary = settings.get("primary_color", "#8d0a0a")
     # Sanitize here too (not just in coerce_theme_settings): theme_settings read
     # back from meta/session/manifest are passed straight in without re-coercion,
-    # and font_family is interpolated into the <style> block.
+    # and every one of these values is interpolated into the <style> block. The
+    # font was already re-sanitized here; the colours were not, which left the
+    # only guard on them a length check that "a;}x{y" satisfied.
+    primary = normalize_hex_color(str(settings.get("primary_color", "#8d0a0a")), "#8D0A0A")
+    link = normalize_hex_color(str(settings.get("link_color", primary)), primary)
     font = _sanitize_font_family(settings.get("font_family", "sans-serif"), "sans-serif")
 
     css = f"""
@@ -393,7 +396,7 @@ def build_theme_css(settings: dict) -> str:
     }}
     .manual-grid {{ font-family: var(--manual-font); }}
     .manual-toc h2 {{ color: var(--manual-primary); }}
-    .manual a {{ color: {settings.get("link_color", primary)}; }}
+    .manual a {{ color: {link}; }}
     """
     return css + build_table_theme_css(settings)
 

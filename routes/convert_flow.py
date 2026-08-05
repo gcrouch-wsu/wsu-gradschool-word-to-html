@@ -676,8 +676,14 @@ def review(session_id):
                     rejected_external.append(external_raw)
                 external_urls.pop(edit_key, None)
 
-            # Debug output
-            logger.debug(f"Saving {ref_id}: valid={is_valid}, ignored={is_ignored}, edit='{edit_value[:30] if edit_value else '(none)'}...', target='{target_value[:30] if target_value else '(none)'}...', external='{external_value[:30] if external_value else '(none)'}...'")
+            # Log the shape of the decision, never the content. These fields
+            # carry policy text the operator curated and the URLs they chose;
+            # neither belongs in a log file, even at DEBUG.
+            logger.debug(
+                "Saving %s: valid=%s ignored=%s edit=%s target=%s external=%s",
+                ref_id, is_valid, is_ignored,
+                bool(edit_value), bool(target_value), bool(external_value),
+            )
 
         # Save to persistent edit file
         edit_data = {
@@ -1004,10 +1010,6 @@ def review(session_id):
         linked_ref_count=linked_ref_count,
         rebuild_links=rebuild_links,
         edit_file_name=edit_file.name,
-        edit_file_exists=edit_file.exists(),
-        validations_sample=str(dict(list(existing_validations.items())[:5])),
-        edits_sample=str(dict(list(existing_edits.items())[:5])),
-        headings_sample=str(all_headings[:5]),
         dropdown_headings=all_headings,
         paragraphs=paragraphs,
     )

@@ -54,14 +54,25 @@ def _token_type_from_numfmt(numfmt: str) -> str:
     if numfmt in ("lowerRoman", "upperRoman"): return "roman"
     return "decimal"
 
+_HEX_COLOR_RE = re.compile(r'^(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$')
+
+
 def normalize_hex_color(value: str, fallback: str = "#000000") -> str:
-    """Ensure a hex color string is in #RRGGBB format."""
-    if not value: return fallback
-    value = str(value).lstrip('#')
-    if len(value) == 3:
-        value = ''.join([c*2 for c in value])
-    if len(value) != 6:
+    """Ensure a hex color string is in #RRGGBB format.
+
+    The digits are checked, not just the length. Accepting any six characters
+    meant "a;}x{y" normalized to "#A;}X{Y", and these values are interpolated
+    into a generated stylesheet — so it closed the declaration and opened a rule
+    of the attacker's choosing. Reachable from a crafted session bundle, whose
+    theme settings flow into the CSS download that gets pasted site-wide.
+    """
+    if not value:
         return fallback
+    value = str(value).strip().lstrip('#')
+    if not _HEX_COLOR_RE.match(value):
+        return fallback
+    if len(value) == 3:
+        value = ''.join(c * 2 for c in value)
     return f"#{value.upper()}"
 
 def clamp_number(value: float, min_val: float, max_val: float, fallback: float | None = None) -> float:

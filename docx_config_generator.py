@@ -16,8 +16,10 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, request, render_template_string, send_file, redirect, url_for, flash
+from flask import Flask, abort, request, render_template_string, send_file, redirect, url_for, flash
 from werkzeug.exceptions import RequestEntityTooLarge
+
+from config import is_valid_session_id
 
 from docx import Document
 from docx.shared import RGBColor, Pt
@@ -44,6 +46,24 @@ app.config["MAX_FORM_MEMORY_SIZE"] = 200 * 1024 * 1024
 
 PERSIST_DIR = Path(tempfile.gettempdir()) / "docx_config_generator"
 PERSIST_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _session_paths(session_id: str):
+    """Resolve a session's files, or raise 404 if the id is not one we issued.
+
+    Session ids are always ``str(uuid.uuid4())`` generated here, so anything else
+    arriving in a URL is hostile or stale. Interpolating one straight into a path
+    let ``/export/..%5Cwhatever`` read a file outside PERSIST_DIR on Windows, and
+    ``/example/..%5Cwhatever`` write one — the backslash form survives Werkzeug's
+    routing, which only collapses forward slashes. `config.is_valid_session_id` is
+    the same check the main app applies for the same reason.
+    """
+    if not is_valid_session_id(session_id):
+        abort(404)
+    return (
+        PERSIST_DIR / f"{session_id}_config.json",
+        PERSIST_DIR / f"{session_id}_analysis.json",
+    )
 
 @app.errorhandler(RequestEntityTooLarge)
 def handle_request_too_large(error):
@@ -1375,8 +1395,27 @@ def upload():
         flash(f"Error analyzing document: {str(e)}")
         return redirect(url_for("index"))
 
+def empty_analysis() -> dict:
+    """The analysis shape for a session with no source document.
+
+    Keys the editor template reads must exist even when there was nothing to
+    analyse; the template treats a missing key as a hard error, not a blank.
+    """
+    return {
+        "headings": [],
+        "style_samples": {},
+        "list_formats": {},
+        "resolved_styles": {},
+        "body_style_name": "Normal",
+        "infer_style_map": {},
+        "infer_sequence_map": [],
+        "document_info": {},
+        "accessibility": {"heading_order_issues": [], "heading_levels_used": []},
+    }
+
+
 @app.route("/import-config", methods=["POST"])
-def import_config():
+def import_config():  # noqa: D401
     """Import a JSON configuration file."""
     if "config_json" not in request.files:
         flash("No configuration file uploaded.")
@@ -1428,7 +1467,13 @@ def import_config():
     config_path = PERSIST_DIR / f"{session_id}_config.json"
     analysis_path = PERSIST_DIR / f"{session_id}_analysis.json"
     config_path.write_text(json.dumps(config, indent=2, default=str), encoding="utf-8")
-    analysis_path.write_text(json.dumps({}, indent=2, default=str), encoding="utf-8")
+    # An imported config carries no source document, so there is nothing to
+    # analyse — but the editor reads this file and expects the shape that
+    # analyse_docx() produces. Writing a bare {} accepted the upload and then
+    # failed with a 500 on the very next request, which is the worst of both.
+    analysis_path.write_text(
+        json.dumps(empty_analysis(), indent=2, default=str), encoding="utf-8"
+    )
 
     flash("Configuration imported successfully.")
     return redirect(url_for("editor", session_id=session_id))
@@ -1436,9 +1481,8 @@ def import_config():
 @app.route("/editor/<session_id>", methods=["GET", "POST"])
 def editor(session_id):
     """Editor interface for configuring styles and headings."""
-    
-    config_path = PERSIST_DIR / f"{session_id}_config.json"
-    analysis_path = PERSIST_DIR / f"{session_id}_analysis.json"
+
+    config_path, analysis_path = _session_paths(session_id)
     
     if not config_path.exists():
         flash("Session expired or invalid.")
@@ -1566,7 +1610,7 @@ def editor(session_id):
 @app.route("/export/<session_id>", methods=["GET"])
 def export_config(session_id):
     """Export JSON configuration file."""
-    config_path = PERSIST_DIR / f"{session_id}_config.json"
+    config_path, _analysis_path = _session_paths(session_id)
     
     if not config_path.exists():
         flash("Configuration not found.")
@@ -1587,7 +1631,7 @@ def export_config(session_id):
 @app.route("/example/<session_id>", methods=["GET"])
 def export_example_doc(session_id):
     """Export an example DOCX showcasing resolved styles."""
-    config_path = PERSIST_DIR / f"{session_id}_config.json"
+    config_path, _analysis_path = _session_paths(session_id)
 
     if not config_path.exists():
         flash("Configuration not found.")

@@ -631,28 +631,54 @@
           searchResults.style.boxShadow = "0 2px 8px rgba(0,0,0,0.1)";
           toc.insertBefore(searchResults, tocList);
 
+          // Search results are built as DOM nodes, never as HTML strings.
+          //
+          // These come from the manual's own text (textContent), which is safe
+          // *as text* — but concatenating it into markup and assigning through
+          // innerHTML turns it back into live HTML. A manual that quotes an HTML
+          // example, or a heading containing an angle bracket, then executes
+          // when a reader searches for it. This file runs on the published
+          // WordPress page, so that is a cross-site scripting hole reachable by
+          // any visitor.
+          var appendHighlighted = function(container, text, query) {
+            if (!text) return;
+            if (!query) { container.appendChild(document.createTextNode(text)); return; }
+            var lowerText = text.toLowerCase();
+            var lowerQuery = query.toLowerCase();
+            var from = 0;
+            for (;;) {
+              var at = lowerText.indexOf(lowerQuery, from);
+              if (at === -1) break;
+              if (at > from) {
+                container.appendChild(document.createTextNode(text.slice(from, at)));
+              }
+              var mark = document.createElement("span");
+              mark.className = "manual-search-highlight";
+              mark.textContent = text.substr(at, query.length);
+              container.appendChild(mark);
+              from = at + query.length;
+            }
+            if (from < text.length) {
+              container.appendChild(document.createTextNode(text.slice(from)));
+            }
+          };
+
+          // Returns the plain snippet text; highlighting is applied as nodes.
           var createSnippet = function(text, query, maxLength) {
             if (!text || !query) return "";
             maxLength = maxLength || 120;
 
             var lowerText = text.toLowerCase();
-            var lowerQuery = query.toLowerCase();
-            var index = lowerText.indexOf(lowerQuery);
+            var index = lowerText.indexOf(query.toLowerCase());
 
             if (index === -1) return text.substring(0, maxLength) + "...";
 
             var start = Math.max(0, index - 40);
             var end = Math.min(text.length, index + query.length + 40);
 
-            var snippet = (start > 0 ? "..." : "") +
+            return (start > 0 ? "..." : "") +
               text.substring(start, end) +
               (end < text.length ? "..." : "");
-
-            // Highlight the matched term
-            var regex = new RegExp("(" + query.replace(/[.*+?^${}()|[\\]/g, '\\$&') + ")", 'gi');
-            snippet = snippet.replace(regex, '<span class=\"manual-search-highlight\">$1</span>');
-
-            return snippet;
           };
 
           if (tocSearch && tocSearch.getAttribute("type") === "search") {
@@ -843,7 +869,7 @@
                   levelIndicator += "  ";
                 }
 
-                resultItem.innerHTML = levelIndicator + match.title;
+                resultItem.textContent = levelIndicator + match.title;
                 resultItem.style.fontSize = match.level > 2 ? "0.9em" : "1em";
                 resultItem.style.color = match.level > 2 ? "#666" : "#000";
 
@@ -874,11 +900,13 @@
                 contentItem.classList.add("manual-search-result");
                 contentItem.style.cssText = "display: block; width: 100%; text-align: left; background: none; border: none; padding: 8px 12px; border-bottom: 1px solid #eee; cursor: pointer; font-family: inherit; font-size: 0.9em;";
 
-                var snippet = createSnippet(contentMatch.text, q);
-                var parentInfo = contentMatch.parentHeadingTitle ?
-                  " <span style='color: #666; font-size: 0.85em;'>(in " + contentMatch.parentHeadingTitle + ")</span>" : "";
-
-                contentItem.innerHTML = snippet + parentInfo;
+                appendHighlighted(contentItem, createSnippet(contentMatch.text, q), q);
+                if (contentMatch.parentHeadingTitle) {
+                  var parentInfo = document.createElement("span");
+                  parentInfo.style.cssText = "color: #666; font-size: 0.85em;";
+                  parentInfo.textContent = " (in " + contentMatch.parentHeadingTitle + ")";
+                  contentItem.appendChild(parentInfo);
+                }
 
                 contentItem.addEventListener("click", (function(element) {
                   return function() {
