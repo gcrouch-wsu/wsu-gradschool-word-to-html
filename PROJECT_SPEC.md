@@ -84,6 +84,8 @@ services/                 Reusable non-HTTP logic.
   session_state.py          load/save session.json and edits.json.
   docx_session.py           Shared DOCX→HTML pre-pipeline and the single
                             canonical session_data builder.
+  reference_keys.py         Re-attach saved reference edits after the source
+                            DOCX has been edited (§19).
 
 core/                     Conversion machinery (no Flask imports).
   pandoc_wrapper.py         Pandoc invocation (both directions), version checks,
@@ -138,7 +140,7 @@ download route.
 | GET/POST | `/table_review/<uuid>` | `table_review` | Table formatting options. |
 | POST | `/table_review/<uuid>/preview` | `table_review_preview` | Live table-style preview (JSON). |
 | GET | `/convert/<uuid>` | `do_convert` | Run the conversion and render the preview. |
-| GET | `/download/<uuid:session_id>/<uuid:token>/<kind>` | `download` | Download an export artifact. |
+| GET | `/download/<uuid:session_id>/<uuid:token>/<kind>` | `download` | Download an export artifact. `kind` includes `css` (base + session theme) and `css_base` (base stylesheet only). |
 | POST | `/update_theme` | `update_theme` | Persist theme settings; redirect to re-convert. |
 | POST | `/export/<uuid>` | `export_session` | Build and return a session-bundle ZIP. |
 | POST | `/import_html` | `import_html` | Import a saved HTML page, start a session. |
@@ -166,11 +168,22 @@ authentication is enabled (§8), every endpoint except `/login`, `/logout`,
    auto-match old→new references (`map_new` mode) or build an identity crosswalk
    (`keep_old` mode).
 4. **Review steps**: heading crosswalk → references → (optional) table review.
-   Table review covers alignment/theme *and* header-row designation: Word
-   decides which row lands in `<thead>` and is often wrong, so each table can be
-   set to `auto` (default), `first_row`, `title_row`, or `none`
-   (`core/html_processor.TABLE_HEADER_MODES`, stored in
-   `theme_settings["table_headers"]` keyed by table position).
+   Table review is **per table**, because the right answer depends on the table:
+   - **header row** — `auto` (default), `first_row`, `title_row`, `none`
+     (`TABLE_HEADER_MODES`, stored in `theme_settings["table_headers"]`)
+   - **column alignment** — `auto`, `left_all`, `center_all`, `right_all`,
+     `right_numeric`, `auto_skip_first` (`TABLE_ALIGN_MODES`, in
+     `theme_settings["table_aligns"]`); the document-wide Column 1–4+ settings
+     override it
+   - **placement** — `auto` (natural width), `full`, `center`, `left`, `right`
+     (`TABLE_BLOCK_MODES`, in `theme_settings["table_blocks"]`), emitted as a
+     class on the `<table>` so it works against `wordpress.css` alone
+
+   All three are keyed by the table's position in the document. Table Review is
+   reachable mid-flow when "Edit tables" is set, and from the preview page
+   whenever the converted document contains tables — an imported bundle usually
+   carries `edit_tables: false`, which previously put these controls out of
+   reach exactly when restoring someone else's session.
 5. **Convert** (`do_convert`): run the unified single-pass BeautifulSoup
    pipeline (`process_html_pipeline`), build the accessible grid block, write the
    export artifacts, regenerate the DOCX, and render the preview.
@@ -344,6 +357,12 @@ restarts the process and sessions are short-lived temp directories.
   protocol-relative URLs to https. A value carrying its own scheme is never
   rewritten, so `javascript:` is refused rather than converted. Anything still
   refused is reported to the operator instead of being dropped silently.
+- **Misleading authorities** are refused by both layers: an http(s) URL whose
+  authority contains userinfo (`https://facsen.wsu.edu@evil.example/…`, which
+  reads as WSU and is not) or non-ASCII look-alike characters. The check runs in
+  `sanitize_external_href` as well as on input, because guarding input alone left
+  values already stored in an edits file — an old session, or a bundle someone
+  else assembled — free to publish.
 - **External hrefs**: links surfaced in the review UI and applied to exports are
   filtered through `utils/url_policy.is_safe_href` (internal anchors, http(s),
   mailto only); unsafe schemes (`javascript:`, `data:`, …) are dropped/rendered
@@ -446,6 +465,13 @@ requirements and runs the suite on every push to `main` and every PR.
 
 Coverage by area:
 
+- **Review-round regressions** (`test_codex_review_findings.py`): reproductions
+  from two independent reviews, kept because they are the cases the author's own
+  tests missed — including three real statute citations that a proposed guard
+  would have unlinked.
+- **Editing round trip** (`test_bundle_revised_docx.py`): a bundle imported with
+  a revised DOCX uses the new document, accepts any filename, suppresses the
+  hash warning only when a revision was supplied, and preserves curated edits.
 - **Unit/pipeline**: heading-prefix stripping and three-way regex parity;
   crosswalk numbering conversion and auto-matching; permalink signatures;
   duplicate-aware stable map (idempotency, legacy back-compat); HTML
@@ -526,6 +552,23 @@ version matches `PANDOC_PINNED_VERSION` (no "older than pinned" warning);
   `manual_type` directly: use `core/permalinks.manual_prefix()` /
   `is_section_style()` / `normalize_manual_type()`. Five call sites once decided
   this independently and disagreed (§19).
+- **Do not treat `(` or `[` as reference-label continuations.** The guard that
+  stops "Section II.F" matching inside "Section II.F.6" covers a dot and the dash
+  family only. Adding parentheses looks right — it would stop "Section II.F(1)"
+  matching too — but the manual cites statutes as `RCW 34.05.446(3)` and
+  `42.52.010(11)`, where the parenthetical is a subsection qualifier and the link
+  belongs on the base citation. Adding them silently unlinked three curated,
+  published citations. Locked in as tests.
+- **Reference ids are positional** (`ref_{paragraph}_{offset}_{labelhash}`) and a
+  matching id is **not** proof of identity — a citation that moves into a slot
+  another one vacated matches the wrong entry exactly. `services/reference_keys`
+  therefore pairs by label group, and refuses when a label's citation count
+  changed. It cannot resolve a citation replaced *and* another inserted, which
+  keeps the count equal; fixing that properly needs a content anchor (paragraph
+  text) stored with each edit.
+- **Ignore beats an explicit External URL.** The URL field is prefilled from links
+  found in the paragraph, so a URL is not proof of intent whereas ticking Ignore
+  is. The URL is kept, not discarded, so unticking Ignore restores it.
 - **Table header cells own their own background** in `wordpress.css`. The
   stylesheet forces `color:#000; font-weight:400` on manual cells, so inheriting
   a host theme's `th` background produced unreadable combinations (WSU's design
@@ -994,3 +1037,69 @@ paste used to vanish from the field with no message.
 `facsen.wsu.edu` the manual CSS sits **below ~83 lines of unrelated WSU site
 fixes** in Appearance → Additional CSS; replacing the whole box deletes them.
 `wordpress.js` is unchanged — the code snippet needs no update.
+
+---
+
+## 20. Independent review rounds (2026-08-05)
+
+The §19 work was reviewed twice by a separate agent, with a prompt that told it
+to treat the commit messages as claims and to avoid re-running the author's tests
+(they were written alongside the code and could encode the same assumptions —
+which they did). Sixteen findings; fifteen adopted.
+
+### Round 1 — commit `6d2e64d`
+
+All eight confirmed and fixed. The two that mattered most:
+
+1. **Remapping trusted an exact id match.** Ids are positional, so deleting the
+   middle of three identical labels let the surviving third citation slide into
+   the deleted one's slot, match its id, and inherit its URL — silently, and the
+   review page then saved it. Replaced with label-group pairing.
+2. **The dash guard survived its own fix.** `_replace_reference_at_offset`
+   carried a duplicate copy of the boundary check, so fixing the regex left the
+   bug reachable behind it. The continuation class is now defined once and shared
+   by all three call sites.
+
+Also: split-anchor repair overwrote author links; a legitimate spanning header
+became a caption with the data row promoted; alignment keyed on cell position
+rather than visual column; `normalize_external_href` accepted deceptive
+authorities; two CSS rules leaked site-wide; `_env_int` accepted nonsensical
+limits.
+
+`tests/test_reference_keys.py` asserted the buggy behaviour and was rewritten.
+
+### Round 2 — commit `7db626f`
+
+Seven of eight adopted; seven were variants the round-1 fixes did not cover.
+
+- Equal citation counts are not a trustworthy pairing either. The honest limit is
+  recorded in §15 rather than papered over.
+- Ambiguous entries are **parked** in `reference_orphaned`, not deleted — the
+  round-1 fix destroyed curated work with no undo, on a judgement the code was
+  not entitled to make alone.
+- The authority check moved to the output gate (§8).
+- Split-anchor repair narrowed again, to anchors pointing at a heading.
+- `_row_reads_as_headers` was **deleted**. It refused a genuine header row
+  reading "Requirement | 1 | 2" and promoted a data row reading "Avery Jones |
+  Professor" — wrong in both directions. Converting a full-width title to a
+  caption is unambiguous and stays automatic; what the row beneath it *is* now
+  belongs to the operator, who has a control and sees the table reported as
+  having no header row until they choose.
+- `rowspan` is handled; classification and application share one grid iterator.
+
+**The one rejected finding is the most useful record here.** Treating `(` and `[`
+as label continuations was implemented, then caught against the real manual: it
+silently unlinked `RCW 34.05.446(3)`, `42.52.010(11)` and `42.52.150[4]`. A
+constructed counter-example does not outrank a real document — verify review
+suggestions against the actual manual before acting on them (§15).
+
+### Follow-on corrections
+
+- **Citation prefixes** (`621e916`). "RCW" sat outside the link on 21 citations.
+  This was previously called a Word-document issue on the reasoning that the app
+  should not widen an anchor the author placed — wrong, and checking settled it:
+  the DOCX contains no such hyperlinks at all, and the app creates them. Done as
+  one post-pass over the finished document, not per branch, for the reason round 1
+  established.
+- **Revised DOCX on bundle import** (`e0e69bf`, §4). Replaced a maintainer script
+  that would have been a second implementation of the same operation.

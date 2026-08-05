@@ -16,6 +16,8 @@ For the authoritative description of the architecture, module layout, security m
 - **Searchable TOC** — JavaScript-powered table of contents with live search, scrollspy, and keyboard navigation
 - **Reference crosswalk** — converts legacy heading references (Roman numerals, letters) to numeric format
 - **Print-ready** — the exported CSS includes a print stylesheet, so browser Print / Save as PDF drops the sidebar TOC and search box, repeats table headers across page breaks, and prints external link targets
+- **Per-table control** — each table's header row, column alignment and placement on the page are set individually in Table Review, because the right answer depends on the table
+- **Editing round trip** — send the Word file to an editor, upload it back alongside your session bundle, and the reference review is re-attached to the edited document
 - **Local-first runtime with a Railway/Docker deployment path** — treat internet-facing deployment as a separate hardening exercise (secrets, CSRF, container `PORT`, ZIP/session limits); validate against your own checklist before going public
 
 ---
@@ -93,7 +95,7 @@ This companion tool is local-only in the current project scope. See `README_conf
 
 1. Upload your DOCX file
 2. Configure settings: heading mapping mode (map to new numeric headings, or keep original), TOC depth, and whether to keep heading numbers in text. (Manual type — chapter vs. section — is detected automatically from the document.)
-3. Optionally check "Edit tables" to review table formatting and header rows
+3. Optionally check "Edit tables" to review table formatting, header rows, alignment and placement
 4. Click Upload and process through the review screens (headings, references, tables)
 5. Click "Proceed with Conversion"
 6. Download your outputs:
@@ -101,9 +103,29 @@ This companion tool is local-only in the current project scope. See `README_conf
    - **Fragment** — HTML body only, for pasting into WordPress Custom HTML block
    - **Fragment + CSS** — fragment with embedded styles, for self-contained preview
    - **DOCX** — re-generated Word document for the next editing cycle
-   - **CSS** / **JS** — WordPress site-level stylesheet and script
+   - **CSS + theme** — site stylesheet plus this session's theme settings (colors, fonts, table theme)
+   - **CSS (base only)** — the site stylesheet alone, matching a site that never installed the theme block
+   - **JS** — WordPress site-level script
    - **Heading Map** — JSON file preserving permalink IDs (carry forward to next cycle)
    - **Session Bundle** — ZIP of all session artifacts
+
+### Returning from an editor (with a session bundle)
+
+When the Word file has been out for editing, this keeps the reference review you
+already did — the link targets and external URLs live in the bundle, not in the
+document.
+
+1. Export a **Session Bundle** before sending the Word file out
+2. Send the editor the `.docx` only — they do not need the bundle
+3. When the edited `.docx` comes back, go to **Import Session Bundle** and supply
+   both: the bundle, and the edited file in the **Revised Word document** field
+4. The app replaces the bundled document, re-attaches every reference edit it can
+   match, and reports anything it could not — a citation added or removed leaves
+   its edits unmatched rather than guessing which copy they belonged to
+5. Work through the review steps and convert
+
+Headings whose wording is unchanged keep their anchors, so published links
+survive. Renaming a heading deliberately changes its anchor.
 
 ### Repeat Conversion (with heading map)
 
@@ -116,7 +138,7 @@ This companion tool is local-only in the current project scope. See `README_conf
 
 ### WordPress Deployment
 
-1. Add the **CSS** as site-level custom CSS (Appearance → Customize → Additional CSS, or a custom CSS plugin).
+1. Add the **CSS** as site-level custom CSS (Appearance → Customize → Additional CSS, or a custom CSS plugin). Two flavours are offered: **CSS + theme** includes this session's theme settings, **CSS (base only)** is the stylesheet alone. If your site has never had the theme block installed, take the base-only download — adding the theme block changes fonts and table styling you may not want.
    - **Append, don't replace.** If the site already has unrelated custom CSS in that box, paste the manual stylesheet *below* it — replacing the whole box deletes the site's own fixes.
    - The stylesheet is page-agnostic: it targets `body:has(.manual-grid)`, so publishing a second manual on a different page needs no CSS edit.
    - It includes a print stylesheet, so browser **Print / Save as PDF** drops the sidebar TOC, search box, and back-to-top button, repeats table headers across pages, and prints external link targets.
@@ -143,6 +165,7 @@ routes/
 services/
   session_state.py              session.json / edits.json load-save helpers
   docx_session.py               Shared DOCX pipeline + canonical session_data builder
+  reference_keys.py             Re-attach saved reference edits after the DOCX is edited
 docx_config_generator.py        Companion config generator
 config.py                       SessionDir, PERSIST_DIR, env-backed settings
 wordpress.css                   WordPress stylesheet (WCAG 2.1 AA)
@@ -240,6 +263,9 @@ The crosswalk system converts old-style heading references (Roman numerals, lett
 | Search doesn't show on WordPress | Update the JS code snippet with the latest version from `wordpress.js` |
 | Tables not editable | Check "Edit tables" checkbox on the upload form before uploading |
 | Table header row is wrong | Word decides which row lands in `<thead>` and is often wrong. In Table Review, set that table to **Column headers**, **Title → caption**, or **Ordinary data** |
-| An External URL wasn't saved | Only `http(s)`, `mailto:`, and `#anchor` links are stored. A bare host like `policies.wsu.edu/x` is promoted to `https://` automatically; anything else is reported in a warning after saving |
+| An External URL wasn't saved | Only `http(s)`, `mailto:`, and `#anchor` links are stored. A bare host like `policies.wsu.edu/x` is promoted to `https://` automatically; anything else is reported in a warning after saving. A URL that hides its destination (`https://wsu.edu@elsewhere.example/`) is refused |
+| An External URL is saved but no link appears | The reference is also marked **Ignore**, which wins. The URL is kept so unticking Ignore restores it |
+| A table looks wrong on the page | Table Review sets each table's header row, column alignment, and width/position separately. Reach it from the preview page via **Table settings…** — it appears whenever the converted document has tables |
+| Reference edits vanished after editing the Word file | A citation was added or removed, so the app could not tell which copy each edit belonged to. It reports how many and keeps them in the session rather than applying them to the wrong citation |
 | Heading map not loading | Attach the `.json` via the file picker, or paste its contents in the Advanced section — either works (if both are filled, the pasted text wins) |
 | Session data lost | Sessions live in temp — restart doesn't clear them, but OS cleanup might |
