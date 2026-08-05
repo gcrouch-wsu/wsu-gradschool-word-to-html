@@ -24,6 +24,22 @@ _BARE_HOST_RE = re.compile(
 )
 
 
+def _authority_is_plausible(url: str) -> bool:
+    """Reject http(s) authorities that misrepresent where the link goes.
+
+    ``https://facsen.wsu.edu@evil.example/manual`` reads as a WSU link but sends
+    the browser to evil.example — everything before the ``@`` is userinfo. A
+    non-ASCII host can do the same with look-alike characters. Neither has a
+    legitimate use in a policy manual's citations, and the value here is typed by
+    an operator who is very likely pasting something they were given.
+    """
+    rest = url.split("//", 1)[1] if "//" in url else url
+    authority = re.split(r"[/?#]", rest, maxsplit=1)[0]
+    if "@" in authority:
+        return False
+    return authority.isascii()
+
+
 def normalize_external_href(href: str) -> str:
     """Coerce operator input into a safe absolute URL, or '' if it cannot be.
 
@@ -35,14 +51,18 @@ def normalize_external_href(href: str) -> str:
     value = str(href or "").strip()
     if not value:
         return ""
+    lower = value.lower()
+    if (lower.startswith("http://") or lower.startswith("https://")) \
+            and not _authority_is_plausible(value):
+        return ""
     if is_safe_href(value):
         return value
     if value.startswith("//"):
         candidate = f"https:{value}"
-        return candidate if is_safe_href(candidate) else ""
+        return candidate if (is_safe_href(candidate) and _authority_is_plausible(candidate)) else ""
     if _BARE_HOST_RE.match(value):
         candidate = f"https://{value}"
-        return candidate if is_safe_href(candidate) else ""
+        return candidate if (is_safe_href(candidate) and _authority_is_plausible(candidate)) else ""
     return ""
 
 

@@ -761,12 +761,19 @@ def review(session_id):
     # Same re-attachment the conversion does, so the review page shows the
     # operator their saved work against the edited document rather than a page
     # of blank fields. Persist it, so the next save writes the current ids.
-    edit_data, remapped = remap_reference_edits(references, edit_data)
-    if remapped:
+    edit_data, remapped, discarded = remap_reference_edits(references, edit_data)
+    if remapped or discarded:
         save_edits_data(session, edit_data)
+    if remapped:
         flash(
             f"The document changed since these edits were saved — {remapped} "
             "reference edit(s) were re-matched to their citations. Check them before converting."
+        )
+    if discarded:
+        flash(
+            f"⚠ {discarded} saved reference edit(s) were discarded: a citation was added or "
+            "removed, so there is no reliable way to tell which copy each edit belonged to. "
+            "Re-enter them below."
         )
     existing_edits = edit_data.get('reference_edits', {})
     existing_validations = edit_data.get('reference_validations', {})
@@ -1228,11 +1235,17 @@ def do_convert(session_id):
             # Reference ids encode paragraph position, so an inserted paragraph
             # shifts every id below it and the operator's curated link targets
             # and external URLs silently stop applying.
-            edit_data, moved = remap_reference_edits(original_references, edit_data)
+            edit_data, moved, dropped = remap_reference_edits(original_references, edit_data)
             if moved:
                 flash(
                     f"The document changed since these edits were saved — "
                     f"{moved} reference edit(s) were re-matched to their citations."
+                )
+            if dropped:
+                flash(
+                    f"⚠ {dropped} saved reference edit(s) were discarded: a citation was "
+                    "added or removed, so there is no reliable way to tell which copy "
+                    "each edit belonged to. Re-check those references."
                 )
             reference_edits = edit_data.get('reference_edits', {})
             reference_validations = edit_data.get('reference_validations', {})

@@ -96,7 +96,10 @@
 
 /* Reduced motion support - WCAG 2.3.3 (Animation from Interactions) */
 @media (prefers-reduced-motion: reduce) {
-	*,
+	/* Scoped to the manual: this stylesheet is installed site-wide, and a bare
+	   `*` disabled animation on every element of every page on the host site. */
+	.manual-grid,
+	.manual-grid *,
 												::before,
 												::after {
 		animation-duration: .01ms !important;
@@ -1158,9 +1161,9 @@ body .manual-grid .manual ul > li::before {
 	   `.manual .heading-link-icon`, so both need their own specificity. */
 	.manual-grid .manual-toc,
 	.skip-to-main,
-	.manual-search,
-	.manual-search-results,
-	.manual-search-status,
+	.manual-grid .manual-search,
+	.manual-grid .manual-search-results,
+	.manual-grid .manual-search-status,
 	#manual-back-to-top,
 	.manual .heading-link-icon {
 		display: none !important;

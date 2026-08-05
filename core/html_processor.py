@@ -816,12 +816,14 @@ def _format_manual_tables_impl(
         for row in table.find_all('tr'):
             if row.parent is not None and row.parent.name == 'thead':
                 continue
-            for idx, cell in enumerate(row.find_all(['th', 'td'])):
+            column = 0
+            for cell in row.find_all(['th', 'td']):
+                span = _cell_colspan(cell)
                 text = cell.get_text().strip()
-                if not text:
-                    continue
-                seen, numeric = counts.get(idx, (0, 0))
-                counts[idx] = (seen + 1, numeric + (1 if is_num(text) else 0))
+                if text:
+                    seen, numeric = counts.get(column, (0, 0))
+                    counts[column] = (seen + 1, numeric + (1 if is_num(text) else 0))
+                column += span
         return {
             idx: (numeric > 0 and numeric * 2 >= seen)
             for idx, (seen, numeric) in counts.items()
@@ -847,7 +849,10 @@ def _format_manual_tables_impl(
         for row in table.find_all('tr'):
             cells = row.find_all(['th', 'td'])
             in_thead = row.parent and row.parent.name == 'thead'
-            for idx, td in enumerate(cells):
+            column = 0
+            for td in cells:
+                idx = column
+                column += _cell_colspan(td)
                 num = col_is_numeric.get(idx, False)
                 if in_thead and td.name == "th" and ha:
                     a = ha
@@ -881,6 +886,35 @@ def _row_is_full_width_title(row: Tag, columns: int) -> bool:
     raw_span = str(cells[0].get('colspan') or 1)
     span = int(raw_span) if raw_span.isdigit() else 1
     return span >= columns and bool(cells[0].get_text(strip=True))
+
+
+def _cell_colspan(cell: Tag) -> int:
+    """A cell's colspan, so alignment keys on the visual column.
+
+    Indexing by position in the row put a cell after a `colspan="2"` into the
+    wrong column, so it inherited another column's alignment.
+    """
+    raw = str(cell.get('colspan') or 1).strip()
+    return max(1, int(raw)) if raw.isdigit() else 1
+
+
+def _cell_is_numeric(text: str) -> bool:
+    """True for a cell that is just a number — '12', '1,250', '$40', '50%'."""
+    if not text or not text.strip():
+        return False
+    normalized = re.sub(r'[\s$,% –—]', '', text.strip())
+    return bool(re.match(r'^-?[\d,.]+$', normalized))
+
+
+def _row_reads_as_headers(row: Tag) -> bool:
+    """Whether a row looks like column headers rather than data.
+
+    Headers are labels; a numeric cell means the row is carrying values.
+    """
+    cells = row.find_all(['th', 'td'])
+    if not cells:
+        return False
+    return not any(_cell_is_numeric(cell.get_text()) for cell in cells)
 
 
 def _promote_row_to_header(row: Tag) -> None:
@@ -953,12 +987,23 @@ def _normalize_table_headers_impl(soup: BeautifulSoup, overrides: dict | None = 
                 table.insert(0, caption)
             head_row.extract()
             next_row = tbody.find('tr') if tbody is not None else table.find('tr')
-            if next_row is not None:
+            # Promote the following row only when it reads like headers. Under a
+            # spanning title the next row is often ordinary data ("GPA | 3.0"),
+            # and marking data as headers is the same WCAG 1.3.1 defect in
+            # reverse. A numeric cell is the reliable tell. `title_row` is the
+            # operator saying explicitly that it *is* the header row.
+            promote = next_row is not None and (
+                mode == 'title_row' or _row_reads_as_headers(next_row)
+            )
+            if promote:
                 _promote_row_to_header(next_row)
                 thead.append(next_row.extract())
             elif not thead.find('tr'):
                 thead.decompose()
-            logger.info("Table %d: converted full-width title row to <caption>", index)
+            logger.info(
+                "Table %d: converted full-width title row to <caption>%s",
+                index, "" if promote else " (next row left as data)",
+            )
             continue
 
         # Explicit "the first body row is the header".
@@ -1220,7 +1265,7 @@ def _replace_reference_at_offset(
         start_offset >= 0
         and end_offset <= len(flat)
         and flat[start_offset:end_offset] == old_t
-        and not re.match(r'\.?\w', flat[end_offset:end_offset + 2])
+        and not re.match(_REF_CONTINUATION + r'?\w', flat[end_offset:end_offset + 2])
         and not re.search(r'[\w.]$', flat[:start_offset])
     )
     if not offset_is_whole_label:
@@ -1372,8 +1417,16 @@ def _normalize_ws_for_ref_match(text: str) -> str:
 # Trailing guard: not followed by an optional dot plus a word character, so
 # "Section II.F" will not match "Section II.F.6" while a label that legitimately
 # ends a sentence ("... in Section II.F.6.") still matches.
+# The tail guard also blocks a hyphen or dash joining the label to more of it:
+# "Section II.F" must not match inside "Section II.F-1" any more than inside
+# "Section II.F.6". A dash followed by a space ("Section II.F — see below") is a
+# genuine sentence break and still matches.
 _REF_LEAD_GUARD = r'(?<![\w.])'
-_REF_TAIL_GUARD = r'(?!\.?\w)'
+# Characters that can join a label to more of itself: a dot ("II.F.6") or a
+# dash ("II.F-1"). Shared so the regex guards and the offset-based fallback
+# below cannot drift apart — they did, and the fallback re-introduced the bug.
+_REF_CONTINUATION = r'[.\-‐‑–—]'
+_REF_TAIL_GUARD = r'(?!' + _REF_CONTINUATION + r'?\w)'
 
 
 def _guarded_ref_regex(body: str, flags=re.IGNORECASE) -> re.Pattern:
@@ -1401,6 +1454,13 @@ def _absorb_split_reference_anchor(
         return False
     want = _normalize_ws_for_ref_match(old_t)
     for a in block.find_all('a'):
+        # Only repair the app's own problem: a Word cross-reference, which is an
+        # internal anchor. An http/mailto link is something the author placed
+        # deliberately, and retargeting it would silently replace an intentional
+        # external citation with a manual-internal one.
+        href = (a.get('href') or '').strip()
+        if not href.startswith('#'):
+            continue
         atext = _normalize_ws_for_ref_match(a.get_text())
         if not atext or atext == want or not want.startswith(atext):
             continue
@@ -1412,7 +1472,7 @@ def _absorb_split_reference_anchor(
         if not tail.startswith(remainder):
             continue
         # The label must end here, not continue into a longer one.
-        if re.match(r'\.?\w', tail[len(remainder):len(remainder) + 2]):
+        if re.match(_REF_CONTINUATION + r'?\w', tail[len(remainder):len(remainder) + 2]):
             continue
         a['href'] = link_href
         if safe_u:

@@ -3,19 +3,25 @@
 Reference ids encode *where* a citation sits: ``ref_{paragraph}_{offset}_{hash}``,
 where the hash covers the citation label. Insert or delete a paragraph anywhere
 above a citation and every id below it shifts, so an operator's curated link
-targets and external URLs stop matching and silently do nothing. This is not
-hypothetical — restoring 25 hand-curated URLs to the WSU Faculty Manual needed
-matching on paragraph text rather than the saved ids.
+targets and external URLs stop matching and silently do nothing.
 
-The id format is deliberately left alone: changing it would strand every
-existing session bundle. Instead this module re-attaches stored keys to the
-current document. The label hash is the stable part of an id, so entries are
-grouped by label and matched to the current references for that same label in
-document order — which is what a human does when they say "these are the same
-three citations, they just moved down a page".
+**A matching id is not proof of identity.** Because ids are positional, a
+citation that moves into the slot another one vacated produces an exact match
+with the wrong entry. Deleting the middle of three identical labels made the
+surviving third citation inherit the deleted one's URL — silently, and the review
+page then saved it. So exact matches are not trusted on their own.
 
-Only entries whose exact id is missing are remapped, so an untouched document is
-unaffected.
+Instead, each label is handled as a group:
+
+* the same number of stored entries and current citations — the group shifted as
+  a unit, so pair them in document order (this covers both "nothing moved" and
+  "everything moved down three paragraphs");
+* a different number — a citation was added or removed, and *which* one is not
+  recoverable from positional ids. Any pairing would be a guess, so the group's
+  edits are dropped and reported for the operator to redo.
+
+Dropping curated work is unwelcome, but attaching a wrong URL to a policy
+citation without telling anyone is worse.
 """
 import logging
 import re
@@ -43,19 +49,24 @@ def _parse(ref_id: str):
     return int(match.group(1)), int(match.group(2)), match.group(3)
 
 
-def build_reference_id_remap(references: list, edits_data: dict) -> dict[str, str]:
-    """Map stored reference ids onto the ids this document produces now.
+def plan_reference_id_changes(references: list, edits_data: dict):
+    """Work out how stored reference ids map onto this document.
 
-    Returns ``{stored_id: current_id}`` for entries that moved. Ids that still
-    match a current reference are left alone and absent from the result.
+    Returns ``(remap, ambiguous_ids)``:
+
+    * ``remap`` — ``{stored_id: current_id}`` for entries that moved.
+    * ``ambiguous_ids`` — stored ids whose label gained or lost a citation, so no
+      trustworthy pairing exists. Their edits must be discarded, not guessed.
     """
     from core.docx_processor import generate_stable_ref_id
 
-    current = []
-    for ref in references or []:
+    current_by_hash: dict[str, list[str]] = defaultdict(list)
+    for ref in sorted(references or [], key=lambda r: (r[0], r[3])):
         para, label, start = ref[0], ref[2], ref[3]
-        current.append((generate_stable_ref_id(para, start, label), para, start, label))
-    current_ids = {rid for rid, _p, _s, _l in current}
+        rid = generate_stable_ref_id(para, start, label)
+        parsed = _parse(rid)
+        if parsed:
+            current_by_hash[parsed[2]].append(rid)
 
     stored_ids = set()
     for key in REFERENCE_EDIT_KEYS:
@@ -63,60 +74,58 @@ def build_reference_id_remap(references: list, edits_data: dict) -> dict[str, st
         if isinstance(value, dict):
             stored_ids.update(value.keys())
 
-    orphans = [rid for rid in stored_ids if rid not in current_ids and _parse(rid)]
-    if not orphans:
-        return {}
-
-    # Group both sides by label hash, in document order.
-    current_by_hash = defaultdict(list)
-    for rid, para, start, _label in sorted(current, key=lambda c: (c[1], c[2])):
-        parsed = _parse(rid)
-        if parsed:
-            current_by_hash[parsed[2]].append(rid)
-    # A current id that some stored entry already matches exactly is spoken for.
-    for bucket in current_by_hash.values():
-        bucket[:] = [rid for rid in bucket if rid not in stored_ids]
-
-    orphans_by_hash = defaultdict(list)
-    for rid in sorted(orphans, key=lambda r: (_parse(r)[0], _parse(r)[1])):
-        orphans_by_hash[_parse(rid)[2]].append(rid)
+    stored_by_hash: dict[str, list[str]] = defaultdict(list)
+    for rid in sorted(
+        (r for r in stored_ids if _parse(r)),
+        key=lambda r: (_parse(r)[0], _parse(r)[1]),
+    ):
+        stored_by_hash[_parse(rid)[2]].append(rid)
 
     remap: dict[str, str] = {}
-    for label_hash, stored in orphans_by_hash.items():
-        available = current_by_hash.get(label_hash, [])
-        # Pair them off in document order. Surplus on either side is left
-        # unmapped rather than guessed at — a citation that genuinely went away
-        # should lose its edits, not inherit a neighbour's.
-        for stored_id, current_id in zip(stored, available):
-            remap[stored_id] = current_id
-        if len(stored) != len(available):
-            logger.info(
-                "Reference remap: %d stored entr(ies) and %d current reference(s) "
-                "share label hash %s; %d matched.",
-                len(stored), len(available), label_hash, min(len(stored), len(available)),
-            )
-    return remap
+    ambiguous: set[str] = set()
+    for label_hash, stored in stored_by_hash.items():
+        current = current_by_hash.get(label_hash, [])
+        if len(stored) == len(current):
+            # The group is intact; document order is a trustworthy pairing.
+            for stored_id, current_id in zip(stored, current):
+                if stored_id != current_id:
+                    remap[stored_id] = current_id
+            continue
+        # A citation with this label was added or removed. Positional ids cannot
+        # say which, and an exact id match here would be coincidence, so refuse.
+        ambiguous.update(stored)
+        logger.warning(
+            "Reference remap: label hash %s has %d saved entr(ies) but %d citation(s) "
+            "in the document now; dropping those edits rather than guessing which "
+            "citation each belongs to.",
+            label_hash, len(stored), len(current),
+        )
+    return remap, ambiguous
 
 
-def remap_reference_edits(references: list, edits_data: dict) -> tuple[dict, int]:
-    """Return a copy of ``edits_data`` with reference ids re-attached.
+def remap_reference_edits(references: list, edits_data: dict) -> tuple[dict, int, int]:
+    """Return ``(edits, moved, dropped)`` with reference ids re-attached.
 
-    The second element is how many entries moved, for reporting.
+    ``moved`` counts entries that followed their citation to a new id.
+    ``dropped`` counts entries discarded because their label became ambiguous.
     """
     if not references or not isinstance(edits_data, dict):
-        return edits_data, 0
-    remap = build_reference_id_remap(references, edits_data)
-    if not remap:
-        return edits_data, 0
+        return edits_data, 0, 0
+    remap, ambiguous = plan_reference_id_changes(references, edits_data)
+    if not remap and not ambiguous:
+        return edits_data, 0, 0
 
     updated = dict(edits_data)
-    moved = 0
+    moved = dropped = 0
     for key in REFERENCE_EDIT_KEYS:
         original = edits_data.get(key)
         if not isinstance(original, dict):
             continue
         rebuilt = {}
         for stored_id, value in original.items():
+            if stored_id in ambiguous:
+                dropped += 1
+                continue
             target = remap.get(stored_id, stored_id)
             if target != stored_id:
                 moved += 1
@@ -124,7 +133,7 @@ def remap_reference_edits(references: list, edits_data: dict) -> tuple[dict, int
         updated[key] = rebuilt
 
     logger.info(
-        "Re-attached %d reference edit(s) to %d moved citation(s) after document changes.",
-        moved, len(remap),
+        "Reference edits after document changes: %d re-attached, %d dropped as ambiguous.",
+        moved, dropped,
     )
-    return updated, moved
+    return updated, moved, dropped
