@@ -180,3 +180,69 @@ def test_external_http_url_still_wins_and_is_marked():
     assert anchor is not None, _links(soup)
     assert anchor.get("target") == "_blank"
     assert "external-link" in (anchor.get("class") or [])
+
+
+# --- citation prefixes belong inside the anchor --------------------------
+
+def test_a_citation_prefix_is_pulled_inside_the_anchor():
+    """"RCW" sat outside the link because the app drew the boundary there.
+
+    The reference pattern matches the number, so the anchor covered
+    "42.52.040" and left "RCW" as plain text beside it. Nothing in the source
+    document places that link — the app creates it — so extending it to the
+    whole citation is the app correcting its own structure.
+    """
+    para = "A contract prohibited by RCW 42.52.040 is void."
+    html = DISCIPLINE_HTML.format(body=f"<p>{para}</p>")
+    references = [(3, para, "42.52.040", para.index("42.52.040"), 0, False)]
+    soup = _run(html, references,
+                external={_rid(references): "https://app.leg.wa.gov/RCW/default.aspx?cite=42.52.040"})
+    anchor = soup.find("a", href=lambda h: h and "leg.wa.gov" in h)
+    assert anchor is not None
+    assert anchor.get_text() == "RCW 42.52.040"
+    assert "RCW" not in str(anchor.previous_sibling or "")
+
+
+def test_ordinary_words_before_a_link_are_left_alone():
+    """Only citation words are absorbed, not the preceding prose."""
+    para = "As set out in 42.52.040 the rule applies."
+    html = DISCIPLINE_HTML.format(body=f"<p>{para}</p>")
+    references = [(3, para, "42.52.040", para.index("42.52.040"), 0, False)]
+    soup = _run(html, references,
+                external={_rid(references): "https://app.leg.wa.gov/RCW/default.aspx?cite=42.52.040"})
+    anchor = soup.find("a", href=lambda h: h and "leg.wa.gov" in h)
+    assert anchor.get_text() == "42.52.040", "'in' is prose, not a citation prefix"
+
+
+def test_a_prefix_is_absorbed_whichever_path_created_the_link():
+    """Links are built in three places; absorption runs once over the result.
+
+    "RCW Chapter 42.52" is the real manual's shape — the label already contains
+    "Chapter", so it takes a different replacement path from a bare number, and
+    an earlier per-branch implementation missed it.
+    """
+    para = "The Act, RCW Chapter 42.52, and its regulations apply."
+    html = DISCIPLINE_HTML.format(body=f"<p>{para}</p>")
+    references = [(3, para, "Chapter 42.52", para.index("Chapter 42.52"), 0, False)]
+    soup = _run(html, references,
+                external={_rid(references): "https://app.leg.wa.gov/RCW/default.aspx?cite=42.52"})
+    anchor = soup.find("a", href=lambda h: h and "leg.wa.gov" in h)
+    assert anchor.get_text() == "RCW Chapter 42.52", anchor.get_text()
+
+
+def test_a_prefix_inside_formatting_markup_is_left_alone():
+    """Known limit: only a plain-text prefix is absorbed.
+
+    Pulling "RCW" out of an <em> would either drop the emphasis or require
+    restructuring the run. No citation in the Faculty Manual is formatted that
+    way, so the anchor is left as-is rather than mangling the markup.
+    """
+    para = "The Act, RCW Chapter 42.52, applies."
+    body = "<p>The Act, <em>RCW </em>Chapter 42.52, applies.</p>"
+    html = DISCIPLINE_HTML.format(body=body)
+    references = [(3, para, "Chapter 42.52", para.index("Chapter 42.52"), 0, False)]
+    soup = _run(html, references,
+                external={_rid(references): "https://app.leg.wa.gov/RCW/default.aspx?cite=42.52"})
+    anchor = soup.find("a", href=lambda h: h and "leg.wa.gov" in h)
+    assert anchor.get_text() == "Chapter 42.52"
+    assert "RCW" in soup.find("em").get_text(), "the emphasis is preserved untouched"

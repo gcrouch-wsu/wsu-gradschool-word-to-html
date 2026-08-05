@@ -1466,6 +1466,47 @@ def _ref_flexible_pattern(old_ref: str) -> re.Pattern:
     pattern = re.escape(normalized).replace(r'\ ', r'\s+')
     return _guarded_ref_regex(pattern)
 
+# Citation prefixes that belong to the citation they introduce. The reference
+# pattern matches the number ("42.52.040"), so the anchor stopped short and left
+# "RCW" outside it — the app's own boundary, not anything the author placed. Only
+# these all-caps citation words are absorbed; ordinary prose before a link ("in",
+# "see", "under") is left alone.
+_CITATION_PREFIXES = ("RCW", "WAC", "BPPM")
+_CITATION_PREFIX_RE = re.compile(
+    r'(?:^|(?<=[\s(\[]))((?:' + "|".join(_CITATION_PREFIXES) + r')\s+)$'
+)
+
+
+def _split_citation_prefix(before: str) -> tuple[str, str]:
+    """Split trailing "RCW " (etc.) off the text preceding a citation."""
+    match = _CITATION_PREFIX_RE.search(before or "")
+    if not match:
+        return before, ""
+    return before[:match.start(1)], match.group(1)
+
+
+def _absorb_citation_prefixes(soup: BeautifulSoup) -> int:
+    """Pull a citation prefix sitting just outside an anchor into it.
+
+    Run once over the finished document rather than inside each replacement
+    branch: links are created in three places (the main text-node walk and two
+    fallbacks), and putting the same rule in each is how the dash-guard bug
+    survived its first fix. Here there is one copy and it cannot drift.
+    """
+    moved = 0
+    for anchor in soup.find_all('a', href=True):
+        previous = anchor.previous_sibling
+        if not isinstance(previous, NavigableString):
+            continue
+        head, prefix = _split_citation_prefix(str(previous))
+        if not prefix:
+            continue
+        previous.replace_with(NavigableString(head))
+        anchor.string = f"{prefix}{anchor.get_text()}"
+        moved += 1
+    return moved
+
+
 def _absorb_split_reference_anchor(
     block: Tag, old_t: str, new_t: str, link_href: str, safe_u: str
 ) -> bool:
@@ -1833,6 +1874,10 @@ def _apply_reference_edits_impl(soup: BeautifulSoup, edits: dict, references: li
             if b is block:
                 block_index[i] = (b, _normalize_ws_for_ref_match(b.get_text()))
                 break
+
+    absorbed = _absorb_citation_prefixes(soup)
+    if absorbed:
+        logger.info("Pulled %d citation prefix(es) inside their anchor", absorbed)
 
 def apply_css_counter_numbering(soup_or_html, manual_type: str = 'chapter', preserve: bool = False):
     if isinstance(soup_or_html, str):
