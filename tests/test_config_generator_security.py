@@ -100,3 +100,53 @@ def test_the_empty_analysis_shape_covers_what_the_editor_reads(generator):
     assert analysis["accessibility"]["heading_levels_used"] == []
     for key in ("headings", "style_samples", "list_formats", "resolved_styles"):
         assert key in analysis, key
+
+
+# --- malformed configs are rejected, not crashed on ------------------------
+
+@pytest.mark.parametrize("payload,expected", [
+    ([], "not an object"),
+    ("just a string", "not an object"),
+    ({"styles": []}, '"styles" should be an object'),
+    ({"conversion": []}, '"conversion" should be an object'),
+    ({"numbering": []}, '"numbering" should be an object'),
+    ({"lists": []}, '"lists" should be an object'),
+    ({"document_info": "not-a-dict"}, '"document_info" should be an object'),
+    ({"styles": {"body": []}}, '"styles.body" should be an object'),
+    ({"styles": {"headings": 3}}, '"styles.headings" should be an object'),
+    ({"lists": {"multilevel_formats": "x"}}, '"lists.multilevel_formats" should be an object'),
+])
+def test_a_config_of_the_wrong_shape_is_refused_with_a_reason(client, payload, expected):
+    """These raised AttributeError from .setdefault() and returned a 500.
+
+    An administrator who picks the wrong JSON file should get a sentence
+    naming the problem, not a stack trace after an apparently successful upload.
+    """
+    import html as html_module
+
+    response = client.post(
+        "/import-config",
+        data={"config_json": (io.BytesIO(json.dumps(payload).encode()), "c.json")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    body = html_module.unescape(response.get_data(as_text=True))
+    assert "not a usable configuration" in body
+    assert expected in body
+
+
+@pytest.mark.parametrize("payload", [
+    {},
+    {"styles": {"body": {"font": "Calibri"}}},
+    {"conversion": {"manual_type": "section"}, "lists": {"unordered_formats": {"0": "disc"}}},
+])
+def test_a_config_of_a_usable_shape_is_still_accepted(client, payload):
+    response = client.post(
+        "/import-config",
+        data={"config_json": (io.BytesIO(json.dumps(payload).encode()), "c.json")},
+        content_type="multipart/form-data",
+    )
+    assert response.status_code == 302
+    session_id = response.headers["Location"].rstrip("/").split("/")[-1]
+    assert client.get(f"/editor/{session_id}").status_code == 200

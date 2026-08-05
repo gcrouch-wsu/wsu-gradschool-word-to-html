@@ -15,7 +15,6 @@ the revised document alongside the bundle removes both.
 
 import io
 import json
-import re
 import zipfile
 
 import pytest

@@ -943,6 +943,37 @@ def extract_docx_hyperlinks(doc: Document) -> dict:
             })
     return links_by_para
 
+# Parts of a DOCX that can carry revision marks.
+_REVISION_PARTS = (
+    "word/document.xml", "word/footnotes.xml", "word/endnotes.xml",
+)
+_REVISION_MARK_RE = re.compile(rb"<w:(?:ins|del)\b")
+
+
+def count_tracked_changes(path: Path) -> int:
+    """Number of unresolved revision marks in a DOCX.
+
+    The converter reads the document twice and the two readers disagree about
+    tracked changes: python-docx (heading and reference extraction) sees neither
+    inserted nor deleted text, while Pandoc accepts changes when producing the
+    HTML. A manual returned from an editor with changes still pending therefore
+    converts with headings the extractor reads as empty and references it never
+    sees — measured on the real Faculty Manual, 14 headings read as empty and two
+    curated internal links disappeared, with no error. Callers refuse the upload
+    rather than let that happen quietly.
+    """
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = set(archive.namelist())
+            return sum(
+                len(_REVISION_MARK_RE.findall(archive.read(part)))
+                for part in _REVISION_PARTS if part in names
+            )
+    except (zipfile.BadZipFile, OSError, KeyError):
+        # Not readable as a DOCX; the conversion itself will report that.
+        return 0
+
+
 def has_tables_in_docx(path: Path) -> bool:
     """Check if a DOCX file contains any tables."""
     try:

@@ -1395,6 +1395,29 @@ def upload():
         flash(f"Error analyzing document: {str(e)}")
         return redirect(url_for("index"))
 
+_EXPECTED_CONFIG_DICTS = ("styles", "conversion", "numbering", "lists", "document_info")
+
+
+def _describe_config_shape_problem(config) -> str:
+    """Return a human explanation if this JSON cannot be used as a config."""
+    if not isinstance(config, dict):
+        return f"the file contains a JSON {type(config).__name__}, not an object."
+    for key in _EXPECTED_CONFIG_DICTS:
+        if key in config and not isinstance(config[key], dict):
+            return f'"{key}" should be an object, but this file has a {type(config[key]).__name__}.'
+    styles = config.get("styles")
+    if isinstance(styles, dict):
+        for key in ("body", "headings"):
+            if key in styles and not isinstance(styles[key], dict):
+                return f'"styles.{key}" should be an object, but this file has a {type(styles[key]).__name__}.'
+    lists = config.get("lists")
+    if isinstance(lists, dict):
+        for key in ("multilevel_formats", "unordered_formats"):
+            if key in lists and not isinstance(lists[key], dict):
+                return f'"lists.{key}" should be an object, but this file has a {type(lists[key]).__name__}.'
+    return ""
+
+
 def empty_analysis() -> dict:
     """The analysis shape for a session with no source document.
 
@@ -1434,6 +1457,16 @@ def import_config():  # noqa: D401
         config = json.loads(file.read().decode("utf-8"))
     except Exception as e:
         flash(f"Invalid JSON file: {e}")
+        return redirect(url_for("index"))
+
+    # The upload is arbitrary JSON. Every defaulting step below assumes dicts,
+    # so a file whose shape is wrong — a bare list, or "styles": [] — raised
+    # AttributeError and returned a 500 *after* the upload appeared to succeed.
+    # An administrator picking the wrong file deserves a sentence, not a stack
+    # trace.
+    invalid = _describe_config_shape_problem(config)
+    if invalid:
+        flash(f"That file is not a usable configuration: {invalid}")
         return redirect(url_for("index"))
 
     session_id = str(uuid.uuid4())

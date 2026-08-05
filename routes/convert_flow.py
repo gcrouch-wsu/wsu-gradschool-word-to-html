@@ -65,6 +65,7 @@ from core.docx_processor import (
     serialize_sequence_map,
     generate_stable_ref_id,
     has_tables_in_docx,
+    count_tracked_changes,
     sanitize_docx_styles,
     fix_numbering_xml,
     relocate_body_level_bookmarks,
@@ -408,6 +409,18 @@ def convert():
 
     src = session.source_docx
     f.save(str(src))
+
+    pending = count_tracked_changes(src)
+    if pending:
+        # Refuse rather than convert quietly: the extractor cannot read text
+        # inside a revision mark, so a pending change becomes a missing heading
+        # or a dropped reference with nothing to show for it.
+        flash(
+            f"“{filename}” has {pending} unresolved tracked change(s). Accept or reject "
+            "them in Word and save before converting — the converter cannot read text "
+            "inside a pending change, so anything left unresolved is silently dropped."
+        )
+        return redirect(url_for("index"))
     try:
         style_map = {}
         sequence_map = {}

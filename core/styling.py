@@ -121,6 +121,13 @@ _ALIGN_KEYS = frozenset({
     "table_header_align",
 })
 _BOOL_KEYS = frozenset({"table_header_bold", "table_row_stripe"})
+# Colour-valued settings. Matching on `"color" in key` missed table_header_bg,
+# so an invalid value was stored raw and only normalized later at render — the
+# stored settings and the rendered ones disagreed for no good reason.
+_COLOR_KEYS = frozenset({
+    "primary_color", "link_color", "table_header_bg", "table_header_color",
+    "table_border_color", "table_row_stripe_color",
+})
 
 # WSU brand / web palette for table (and UI swatches)
 WSU_BRAND_SWATCHES: list[tuple[str, str]] = [
@@ -207,7 +214,7 @@ def coerce_theme_settings(
             if val not in (None, "") and str(val).strip().lower() not in ("", "auto", "none") and coerced is None:
                 warnings.append(f"Ignored invalid table alignment for {key}.")
             settings[key] = coerced
-        elif "color" in key:
+        elif key in _COLOR_KEYS or "color" in key:
             fb = settings[key] if isinstance(settings[key], str) else "#000000"
             settings[key] = normalize_hex_color(str(val), fb)
         elif key == "base_font_size":

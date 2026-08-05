@@ -335,14 +335,7 @@ Hide Reviewed Items
 <script>
 // Debug: Show checkbox status on page load
 window.addEventListener('DOMContentLoaded', function() {
-    console.log('=== PAGE LOAD DEBUG ===');
-    const allCheckboxes = document.querySelectorAll('input[type="checkbox"][name^="ref_valid_"]');
-    const checkedCheckboxes = document.querySelectorAll('input[type="checkbox"][name^="ref_valid_"]:checked');
-    console.log('Total checkboxes on page:', allCheckboxes.length);
-    console.log('Pre-checked checkboxes:', checkedCheckboxes.length);
-
     checkedCheckboxes.forEach(cb => {
-        console.log('  - ' + cb.name + ' is checked');
     });
 
     if (allCheckboxes.length === 0) {
@@ -352,12 +345,8 @@ window.addEventListener('DOMContentLoaded', function() {
     // Add change listeners to all checkboxes for debugging
     allCheckboxes.forEach(cb => {
         cb.addEventListener('change', function(e) {
-            console.log('Checkbox changed:', e.target.name, 'checked:', e.target.checked);
         });
     });
-
-    console.log('=== END PAGE LOAD DEBUG ===');
-
     // Update progress counter on page load
     updateProgressCounter();
 });
@@ -421,8 +410,6 @@ function updateProgressCounter() {
         <strong>${reviewed} of ${total} reviewed</strong>
         (${valid} valid references, ${skipped} skipped, ${autoMatched} auto-matched, ${unreviewed} not yet reviewed)
     `;
-
-    console.log('Progress:', {total, reviewed, valid, skipped, autoMatched, unreviewed});
 }
 </script>
 <p style="margin-top: 12px; color: #666; font-size: 14px;">

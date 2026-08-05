@@ -35,7 +35,7 @@ from core.html_processor import (
     shift_heading_levels,
     extract_manual_fragment,
 )
-from core.docx_processor import compute_sha256, deserialize_sequence_map
+from core.docx_processor import compute_sha256, count_tracked_changes, deserialize_sequence_map
 from core.permalinks import normalize_manual_type
 from core.manual_structure import scrape_heading_structure_from_html, auto_match_old_to_new_references
 from core.reference_linking import extract_references_from_html
@@ -335,6 +335,15 @@ def import_bundle():
         if edits_path != dest_edits:
             shutil.move(str(edits_path), str(dest_edits))
 
+        pending = count_tracked_changes(dest_doc)
+        if pending and not revised_docx:
+            flash(
+                f"This bundle's document has {pending} unresolved tracked change(s). "
+                "Accept or reject them in Word and save, then import again — the "
+                "converter cannot read text inside a pending change."
+            )
+            return redirect(url_for("index"))
+
         if revised_docx:
             # Closes the editing round trip: the bundle carries the reference
             # review, the newly uploaded file carries the edits made in Word.
@@ -343,6 +352,15 @@ def import_bundle():
             # document, produced errors ("manifest.json missing", "Malicious
             # bundle detected") that say nothing about what actually went wrong.
             revised_docx.save(str(dest_doc))
+            pending = count_tracked_changes(dest_doc)
+            if pending:
+                flash(
+                    f"“{revised_name}” has {pending} unresolved tracked change(s). Accept "
+                    "or reject them in Word and save before uploading — the converter "
+                    "cannot read text inside a pending change, so anything left "
+                    "unresolved is silently dropped."
+                )
+                return redirect(url_for("index"))
             flash(
                 f"Using the revised document “{revised_name}” in place of the one "
                 f"in the bundle. Your reference review is kept — anything that could "

@@ -10,7 +10,6 @@ import re
 import shutil
 from pathlib import Path
 
-import pytest
 
 from config import PERSIST_DIR
 from tests.conftest import pandoc_required
