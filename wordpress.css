@@ -100,8 +100,8 @@
 	   `*` disabled animation on every element of every page on the host site. */
 	.manual-grid,
 	.manual-grid *,
-												::before,
-												::after {
+	.manual-grid *::before,
+	.manual-grid *::after {
 		animation-duration: .01ms !important;
 		animation-iteration-count: 1 !important;
 		transition-duration: .01ms !important;

@@ -11,7 +11,10 @@ Two layers, deliberately separate:
   never appeared. Normalizing at the point of entry fixes the common case while
   leaving the output gate exactly as strict.
 """
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 # A bare host with no scheme: labels separated by dots, an alphabetic TLD, an
 # optional port, and an optional path/query/fragment with no whitespace.
@@ -85,5 +88,19 @@ def is_safe_href(href: str) -> bool:
 
 
 def sanitize_external_href(href: str) -> str:
-    """Return href if safe; otherwise empty string (caller should not emit a link)."""
-    return href.strip() if is_safe_href(href) else ""
+    """Return href if safe to emit; otherwise empty string.
+
+    The authority check runs here as well as on input. Guarding only operator
+    input left already-stored values — from an older session, or an imported
+    bundle someone else assembled — free to publish
+    ``https://facsen.wsu.edu@evil.example/...``, which reads as a WSU link and is
+    not one. This is the gate everything written into exported HTML passes.
+    """
+    value = str(href or "").strip()
+    if not is_safe_href(value):
+        return ""
+    lower = value.lower()
+    if (lower.startswith("http://") or lower.startswith("https://"))             and not _authority_is_plausible(value):
+        logger.warning("Refusing to emit a link with a misleading authority: %r", value)
+        return ""
+    return value

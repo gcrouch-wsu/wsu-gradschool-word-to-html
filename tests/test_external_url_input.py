@@ -194,17 +194,25 @@ def test_dangerous_value_is_reported_and_never_stored(client_nocsrf, review_sess
 # --- ignored reference + External URL conflict ---------------------------
 
 @pandoc_required
-def test_ignored_reference_drops_its_external_url_and_says_so(client_nocsrf, review_session):
-    """The two settings contradict; ignore wins, and it must not do so silently."""
+def test_an_ignored_reference_holds_its_url_inactive_and_says_so(client_nocsrf, review_session):
+    """Ignore wins in the output, but the URL is kept so unticking recovers it."""
+    from bs4 import BeautifulSoup
+
     sid, ref_ids = review_session
     body = _submit(client_nocsrf, sid, ref_ids, {
         f"ref_ignore_{ref_ids[0]}": "on",
         f"ref_external_{ref_ids[0]}": "https://wsu.edu/x",
         "save_edits": "1",
     }).get_data(as_text=True)
-    assert _saved_urls(sid) == {}, "an ignored reference must not keep a URL"
-    assert "were NOT saved because their reference is marked" in body
-    assert "https://wsu.edu/x" in body, "the message must name the dropped value"
+    assert "NOT in effect" in body
+    assert "https://wsu.edu/x" in body, "the message must name the inactive value"
+    assert list(_saved_urls(sid).values()) == ["https://wsu.edu/x"], "kept, not destroyed"
+
+    # ...and it really is inactive: no link is emitted for that reference.
+    main = BeautifulSoup(
+        client_nocsrf.get(f"/convert/{sid}").get_data(as_text=True), "html.parser"
+    ).find("main")
+    assert main.find("a", href="https://wsu.edu/x") is None
 
 
 @pandoc_required

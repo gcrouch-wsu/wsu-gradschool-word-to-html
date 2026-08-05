@@ -20,8 +20,11 @@ Instead, each label is handled as a group:
   recoverable from positional ids. Any pairing would be a guess, so the group's
   edits are dropped and reported for the operator to redo.
 
-Dropping curated work is unwelcome, but attaching a wrong URL to a policy
-citation without telling anyone is worse.
+Ambiguous entries are *parked*, not deleted: they move to
+``reference_orphaned`` where nothing applies them, and the operator is told. An
+earlier version discarded them outright and the review page saved that
+immediately — correct in output, but it destroyed curated work with no undo on a
+judgement the code was not entitled to make alone.
 """
 import logging
 import re
@@ -37,6 +40,9 @@ REFERENCE_EDIT_KEYS = (
     "reference_ignored",
     "reference_external_urls",
 )
+
+# Where ambiguous entries are parked. Nothing reads this when applying edits.
+ORPHAN_KEY = "reference_orphaned"
 
 _REF_ID_RE = re.compile(r"^ref_(\d+)_(\d+)_([0-9a-f]{8})$")
 
@@ -116,6 +122,7 @@ def remap_reference_edits(references: list, edits_data: dict) -> tuple[dict, int
         return edits_data, 0, 0
 
     updated = dict(edits_data)
+    parked = dict(edits_data.get(ORPHAN_KEY) or {})
     moved = dropped = 0
     for key in REFERENCE_EDIT_KEYS:
         original = edits_data.get(key)
@@ -124,6 +131,8 @@ def remap_reference_edits(references: list, edits_data: dict) -> tuple[dict, int
         rebuilt = {}
         for stored_id, value in original.items():
             if stored_id in ambiguous:
+                # Keep it, out of the way, so the operator can recover it.
+                parked.setdefault(stored_id, {})[key] = value
                 dropped += 1
                 continue
             target = remap.get(stored_id, stored_id)
@@ -131,9 +140,11 @@ def remap_reference_edits(references: list, edits_data: dict) -> tuple[dict, int
                 moved += 1
             rebuilt[target] = value
         updated[key] = rebuilt
+    if parked:
+        updated[ORPHAN_KEY] = parked
 
     logger.info(
-        "Reference edits after document changes: %d re-attached, %d dropped as ambiguous.",
+        "Reference edits after document changes: %d re-attached, %d parked as ambiguous.",
         moved, dropped,
     )
     return updated, moved, dropped

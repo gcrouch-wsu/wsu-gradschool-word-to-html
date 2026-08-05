@@ -813,17 +813,13 @@ def _format_manual_tables_impl(
         are numeric, and then every cell in it gets the same alignment.
         """
         counts: dict[int, list[int]] = {}
-        for row in table.find_all('tr'):
-            if row.parent is not None and row.parent.name == 'thead':
-                continue
-            column = 0
-            for cell in row.find_all(['th', 'td']):
-                span = _cell_colspan(cell)
-                text = cell.get_text().strip()
-                if text:
-                    seen, numeric = counts.get(column, (0, 0))
-                    counts[column] = (seen + 1, numeric + (1 if is_num(text) else 0))
-                column += span
+        body_rows = [r for r in table.find_all('tr')
+                     if not (r.parent is not None and r.parent.name == 'thead')]
+        for _row, cell, column in iter_table_grid(body_rows):
+            text = cell.get_text().strip()
+            if text:
+                seen, numeric = counts.get(column, (0, 0))
+                counts[column] = (seen + 1, numeric + (1 if is_num(text) else 0))
         return {
             idx: (numeric > 0 and numeric * 2 >= seen)
             for idx, (seen, numeric) in counts.items()
@@ -846,13 +842,9 @@ def _format_manual_tables_impl(
                     th['scope'] = 'row'
                 else:
                     th['scope'] = 'col'
-        for row in table.find_all('tr'):
-            cells = row.find_all(['th', 'td'])
+        for row, td, idx in iter_table_grid(table.find_all('tr')):
             in_thead = row.parent and row.parent.name == 'thead'
-            column = 0
-            for td in cells:
-                idx = column
-                column += _cell_colspan(td)
+            if True:
                 num = col_is_numeric.get(idx, False)
                 if in_thead and td.name == "th" and ha:
                     a = ha
@@ -888,6 +880,44 @@ def _row_is_full_width_title(row: Tag, columns: int) -> bool:
     return span >= columns and bool(cells[0].get_text(strip=True))
 
 
+def _cell_span(cell: Tag, attr: str) -> int:
+    raw = str(cell.get(attr) or 1).strip()
+    return max(1, int(raw)) if raw.isdigit() else 1
+
+
+def iter_table_grid(rows):
+    """Yield ``(row, cell, column)`` with the cell's true visual column.
+
+    Indexing by position in the row put a cell after a ``colspan`` into the wrong
+    column; ignoring ``rowspan`` did the same to every row a spanned cell reaches
+    into, which is the common Word shape of a group label down the first column.
+    Both classification and application walk the table through here so they
+    cannot disagree about what column a cell is in.
+    """
+    carried: dict[int, int] = {}          # column -> rows still blocked below
+    for row in rows:
+        column = 0
+        pending: dict[int, int] = {}
+        for cell in row.find_all(['th', 'td']):
+            while carried.get(column, 0) > 0:
+                column += 1
+            yield row, cell, column
+            span = _cell_span(cell, 'colspan')
+            rows_down = _cell_span(cell, 'rowspan')
+            if rows_down > 1:
+                for occupied in range(column, column + span):
+                    pending[occupied] = rows_down - 1
+            column += span
+        # Age the carries this row consumed, then add the ones it created. A
+        # rowspan of N blocks the N-1 rows *below* its own, so a carry set here
+        # must not be decremented until the next row has used it.
+        for key in list(carried):
+            carried[key] -= 1
+            if carried[key] <= 0:
+                del carried[key]
+        carried.update(pending)
+
+
 def _cell_colspan(cell: Tag) -> int:
     """A cell's colspan, so alignment keys on the visual column.
 
@@ -904,17 +934,6 @@ def _cell_is_numeric(text: str) -> bool:
         return False
     normalized = re.sub(r'[\s$,% –—]', '', text.strip())
     return bool(re.match(r'^-?[\d,.]+$', normalized))
-
-
-def _row_reads_as_headers(row: Tag) -> bool:
-    """Whether a row looks like column headers rather than data.
-
-    Headers are labels; a numeric cell means the row is carrying values.
-    """
-    cells = row.find_all(['th', 'td'])
-    if not cells:
-        return False
-    return not any(_cell_is_numeric(cell.get_text()) for cell in cells)
 
 
 def _promote_row_to_header(row: Tag) -> None:
@@ -987,14 +1006,16 @@ def _normalize_table_headers_impl(soup: BeautifulSoup, overrides: dict | None = 
                 table.insert(0, caption)
             head_row.extract()
             next_row = tbody.find('tr') if tbody is not None else table.find('tr')
-            # Promote the following row only when it reads like headers. Under a
-            # spanning title the next row is often ordinary data ("GPA | 3.0"),
-            # and marking data as headers is the same WCAG 1.3.1 defect in
-            # reverse. A numeric cell is the reliable tell. `title_row` is the
-            # operator saying explicitly that it *is* the header row.
-            promote = next_row is not None and (
-                mode == 'title_row' or _row_reads_as_headers(next_row)
-            )
+            # Do NOT guess whether the row below a title is headers or data.
+            # A "no numeric cells" heuristic got both directions wrong on real
+            # tables — it refused a genuine header row reading "Requirement | 1 |
+            # 2" and promoted a data row reading "Avery Jones | Professor".
+            # Turning the title into a caption is unambiguous and happens
+            # automatically; deciding what the next row *is* belongs to the
+            # operator, who has a per-table control for exactly this. The Table
+            # Review card shows the table as having no header row until they
+            # choose, so the question is visible rather than silently answered.
+            promote = next_row is not None and mode == 'title_row'
             if promote:
                 _promote_row_to_header(next_row)
                 thead.append(next_row.extract())
@@ -1425,6 +1446,13 @@ _REF_LEAD_GUARD = r'(?<![\w.])'
 # Characters that can join a label to more of itself: a dot ("II.F.6") or a
 # dash ("II.F-1"). Shared so the regex guards and the offset-based fallback
 # below cannot drift apart — they did, and the fallback re-introduced the bug.
+#
+# Parentheses and brackets are deliberately NOT here. A review suggested adding
+# them so "Section II.F(1)" would not match "Section II.F" — reasonable in the
+# abstract, but the Faculty Manual cites statutes as "RCW 34.05.446(3)" and
+# "42.52.010(11)", where the parenthetical is a subsection qualifier and the
+# link belongs on the base citation. Including them silently unlinked three
+# curated, already-published citations. Real documents beat constructed cases.
 _REF_CONTINUATION = r'[.\-‐‑–—]'
 _REF_TAIL_GUARD = r'(?!' + _REF_CONTINUATION + r'?\w)'
 
@@ -1452,14 +1480,24 @@ def _absorb_split_reference_anchor(
     """
     if not link_href:
         return False
+    root = block.find_parent() or block
+    while root.parent is not None:
+        root = root.parent
+    heading_ids = {
+        (h.get('id') or '').strip()
+        for h in root.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+        if (h.get('id') or '').strip()
+    }
     want = _normalize_ws_for_ref_match(old_t)
     for a in block.find_all('a'):
-        # Only repair the app's own problem: a Word cross-reference, which is an
-        # internal anchor. An http/mailto link is something the author placed
-        # deliberately, and retargeting it would silently replace an intentional
-        # external citation with a manual-internal one.
+        # Only repair the app's own problem: a Word cross-reference to a
+        # section, which lands as an internal anchor pointing at a heading. An
+        # http/mailto/relative link is the author's deliberate choice, and so is
+        # an internal link to something that is not a heading (a bookmark, a
+        # figure, a note) — retargeting either would silently move a link its
+        # author placed on purpose.
         href = (a.get('href') or '').strip()
-        if not href.startswith('#'):
+        if not href.startswith('#') or href[1:] not in heading_ids:
             continue
         atext = _normalize_ws_for_ref_match(a.get_text())
         if not atext or atext == want or not want.startswith(atext):

@@ -138,7 +138,7 @@ def test_split_word_cross_reference_is_absorbed():
     para = "Pending resolution as set forth in Section II.F.6 below."
     body = (
         "<p>Pending resolution as set forth in "
-        "<a href='#stale-target'>Section II.F</a>.6 below.</p>"
+        "<a href='#iif-corrective-action-and-disciplinary-process'>Section II.F</a>.6 below.</p>"
     )
     html = DISCIPLINE_HTML.format(body=body)
     references = [(3, para, "Section II.F.6", para.index("Section II.F.6"), 0, False)]

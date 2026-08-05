@@ -663,11 +663,12 @@ def review(session_id):
             external_raw = request.form.get(f'ref_external_{ref_id}', '').strip()
             external_value = normalize_external_href(external_raw)
             if is_ignored and external_value:
-                # The two settings contradict each other and the pipeline
-                # resolves it in favour of Ignore, so storing the URL would
-                # leave a value that quietly does nothing. Drop it and say so.
+                # The two settings contradict and the pipeline resolves it in
+                # favour of Ignore. Keep the URL anyway — an ignored reference is
+                # never applied, so it is inert, and preserving it means unticking
+                # Ignore recovers the operator's work instead of asking them to
+                # retype it. Just say clearly that it is not in effect.
                 ignored_with_url.append(external_value)
-                external_value = ""
             if external_value:
                 external_urls[edit_key] = external_value
             else:
@@ -727,11 +728,11 @@ def review(session_id):
             if len(unique_conflicts) > 3:
                 shown += f", and {len(unique_conflicts) - 3} more"
             flash(
-                f"⚠ {len(unique_conflicts)} External URL(s) were NOT saved because their "
-                f"reference is marked “Ignore”, which wins: {shown}. "
-                "Untick Ignore on those references if you want the links."
+                f"⚠ {len(unique_conflicts)} External URL(s) are saved but NOT in effect, "
+                f"because their reference is marked “Ignore”, which wins: {shown}. "
+                "Untick Ignore on those references to apply them."
             )
-            logger.warning("Dropped %d External URL(s) on ignored references: %s",
+            logger.info("%d External URL(s) held inactive behind Ignore: %s",
                            len(unique_conflicts), unique_conflicts[:10])
         if 'proceed' in request.form:
             if edit_tables and has_tables:
@@ -771,9 +772,9 @@ def review(session_id):
         )
     if discarded:
         flash(
-            f"⚠ {discarded} saved reference edit(s) were discarded: a citation was added or "
-            "removed, so there is no reliable way to tell which copy each edit belonged to. "
-            "Re-enter them below."
+            f"⚠ {discarded} saved reference edit(s) could not be matched: a citation was added "
+            "or removed, so there is no reliable way to tell which copy each edit belonged to. "
+            "They are kept in the session but not applied — re-enter them below."
         )
     existing_edits = edit_data.get('reference_edits', {})
     existing_validations = edit_data.get('reference_validations', {})
@@ -1243,9 +1244,10 @@ def do_convert(session_id):
                 )
             if dropped:
                 flash(
-                    f"⚠ {dropped} saved reference edit(s) were discarded: a citation was "
-                    "added or removed, so there is no reliable way to tell which copy "
-                    "each edit belonged to. Re-check those references."
+                    f"⚠ {dropped} saved reference edit(s) could not be matched: a citation "
+                    "was added or removed, so there is no reliable way to tell which copy "
+                    "each edit belonged to. They are kept in the session but not applied — "
+                    "re-enter them on the affected references."
                 )
             reference_edits = edit_data.get('reference_edits', {})
             reference_validations = edit_data.get('reference_validations', {})

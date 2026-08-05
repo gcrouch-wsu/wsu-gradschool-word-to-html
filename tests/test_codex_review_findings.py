@@ -115,7 +115,7 @@ def test_an_authors_external_link_is_never_retargeted():
 def test_a_word_cross_reference_is_still_repaired():
     para = "See Section II.F.6 now."
     soup = _run(
-        "<p>See <a href='#stale'>Section II.F</a>.6 now.</p>",
+        "<p>See <a href='#iif-corrective-action'>Section II.F</a>.6 now.</p>",
         [(3, para, "Section II.F.6", para.index("Section II.F.6"), 0, False)],
     )
     assert [(a.get_text(), a["href"]) for a in soup.find_all("a", href=True)] == [
@@ -128,6 +128,23 @@ def test_a_short_label_does_not_match_a_dash_joined_longer_one(suffix):
     para = f"See Section II.F{suffix} for the appendix."
     soup = _run(f"<p>{para}</p>", [(3, para, "Section II.F", para.index("Section II.F"), 0, False)])
     assert soup.find_all("a", href=True) == [], f"must not link inside Section II.F{suffix}"
+
+
+@pytest.mark.parametrize("citation,text", [
+    ("34.05.446", "review the factors in RCW 34.05.446(3) when deciding"),
+    ("42.52.010", "an officer as defined in 42.52.010(11)."),
+    ("42.52.150", "from a person prohibited by 42.52.150[4] from giving"),
+])
+def test_a_parenthetical_subsection_does_not_block_the_base_citation(citation, text):
+    """Real Faculty Manual statute citations — the link belongs on the base.
+
+    A review proposed treating "(" and "[" as label continuations so
+    "Section II.F(1)" would not match "Section II.F". Applied literally that
+    unlinked three curated, already-published citations, because RCW citations
+    qualify subsections parenthetically. Constructed cases lose to real ones.
+    """
+    from core.html_processor import _ref_flexible_pattern
+    assert _ref_flexible_pattern(citation).search(text)
 
 
 def test_a_label_followed_by_a_spaced_dash_still_links():
@@ -149,18 +166,30 @@ def test_a_data_row_under_a_spanning_title_is_not_promoted_to_header():
     assert out.find("thead") is None, "GPA / 3.0 is data, not a header row"
 
 
-def test_a_real_header_row_under_a_title_is_still_promoted():
+def test_a_header_row_containing_a_number_is_no_longer_misjudged():
+    """The heuristic refused "Requirement | 1 | 2"; nothing guesses now."""
     table = (
-        "<table><thead><tr><th colspan='3'>Advance Notice Table</th></tr></thead>"
-        "<tbody><tr><td>Type</td><td>Year</td><td>Notice</td></tr>"
-        "<tr><td>Annual</td><td>1</td><td>3</td></tr></tbody></table>"
+        "<table><thead><tr><th colspan='3'>Scoring</th></tr></thead>"
+        "<tbody><tr><td>Requirement</td><td>1</td><td>2</td></tr>"
+        "<tr><td>Credits</td><td>12</td><td>24</td></tr></tbody></table>"
+    )
+    auto = BeautifulSoup(normalize_table_headers(table), "html.parser")
+    assert auto.find("caption").get_text() == "Scoring"
+    assert auto.find("thead") is None, "auto must not decide"
+    chosen = BeautifulSoup(normalize_table_headers(table, {"0": "title_row"}), "html.parser")
+    assert [c.get_text() for c in chosen.find("thead").find_all("th")] == ["Requirement", "1", "2"]
+
+
+def test_a_person_row_is_no_longer_promoted_just_for_lacking_numbers():
+    table = (
+        "<table><thead><tr><th colspan='2'>Committee Membership</th></tr></thead>"
+        "<tbody><tr><td>Avery Jones</td><td>Professor</td></tr></tbody></table>"
     )
     out = BeautifulSoup(normalize_table_headers(table), "html.parser")
-    assert out.find("caption").get_text() == "Advance Notice Table"
-    assert [c.get_text() for c in out.find("thead").find_all("th")] == ["Type", "Year", "Notice"]
+    assert out.find("thead") is None, "a data row of names must not become headers"
 
 
-def test_the_operator_can_force_promotion_of_a_numeric_header_row():
+def test_the_operator_can_promote_a_numeric_header_row():
     table = (
         "<table><thead><tr><th colspan='2'>Eligibility Criteria</th></tr></thead>"
         "<tbody><tr><td>GPA</td><td>3.0</td></tr></tbody></table>"

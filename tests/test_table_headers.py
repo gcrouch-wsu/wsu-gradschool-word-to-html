@@ -58,10 +58,18 @@ def _head_cells(table):
 
 
 def test_full_width_title_row_becomes_a_caption():
+    """The unambiguous half happens automatically: a title is not a header."""
     table = _table(normalize_table_headers(TITLE_ROW_TABLE))
     caption = table.find("caption")
     assert caption is not None and caption.get_text(strip=True) == "Advance Notice Table"
-    # The row beneath the title is now the real, programmatic header row.
+    # Whether the next row is headers or data is a judgement the operator makes,
+    # so nothing is promoted on its own.
+    assert table.find("thead") is None
+
+
+def test_the_operator_can_promote_the_row_under_a_title():
+    table = _table(normalize_table_headers(TITLE_ROW_TABLE, {"0": "title_row"}))
+    assert table.find("caption").get_text(strip=True) == "Advance Notice Table"
     assert _head_cells(table) == [
         ("th", "Type of Appointment"),
         ("th", "Year of Employment"),
@@ -71,7 +79,7 @@ def test_full_width_title_row_becomes_a_caption():
 
 
 def test_title_row_repair_does_not_lose_data_rows():
-    table = _table(normalize_table_headers(TITLE_ROW_TABLE))
+    table = _table(normalize_table_headers(TITLE_ROW_TABLE, {"0": "title_row"}))
     body_rows = table.find("tbody").find_all("tr")
     assert [c.get_text(strip=True) for c in body_rows[0].find_all("td")] == [
         "Annual (twelve-month)", "1", "3",
@@ -113,6 +121,7 @@ def test_overrides_are_addressed_by_table_position():
 def test_unknown_mode_falls_back_to_auto():
     table = _table(normalize_table_headers(TITLE_ROW_TABLE, {"0": "nonsense"}))
     assert table.find("caption") is not None
+    assert table.find("thead") is None, "auto does not promote"
 
 
 def test_describe_tables_reports_rows_for_review(tmp_path):
