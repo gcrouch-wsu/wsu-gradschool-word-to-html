@@ -117,15 +117,27 @@ document.
 
 1. Export a **Session Bundle** before sending the Word file out
 2. Send the editor the `.docx` only — they do not need the bundle
-3. When the edited `.docx` comes back, go to **Import Session Bundle** and supply
+3. Tell the editor to **accept or reject every tracked change and save** before
+   returning the file. The app refuses a document with pending revisions (see
+   below); it cannot read them, and silently publishing around them has already
+   cost this project two live links
+4. When the edited `.docx` comes back, go to **Import Session Bundle** and supply
    both: the bundle, and the edited file in the **Revised Word document** field
-4. The app replaces the bundled document, re-attaches every reference edit it can
+5. The app replaces the bundled document, re-attaches every reference edit it can
    match, and reports anything it could not — a citation added or removed leaves
    its edits unmatched rather than guessing which copy they belonged to
-5. Work through the review steps and convert
+6. Work through the review steps and convert
 
 Headings whose wording is unchanged keep their anchors, so published links
 survive. Renaming a heading deliberately changes its anchor.
+
+**Tracked changes must be resolved first.** The converter reads each DOCX twice
+and the two readers disagree about revision marks: python-docx, which extracts
+headings and references, sees neither inserted nor deleted text, while Pandoc
+accepts the changes when it produces the HTML. On a real returned manual with 43
+pending edits, 14 headings read as empty and two curated links vanished from the
+published page with no error. Uploads carrying revision marks are now refused,
+with the count and what to do about it.
 
 ### Repeat Conversion (with heading map)
 
@@ -268,4 +280,5 @@ The crosswalk system converts old-style heading references (Roman numerals, lett
 | A table looks wrong on the page | Table Review sets each table's header row, column alignment, and width/position separately. Reach it from the preview page via **Table settings…** — it appears whenever the converted document has tables |
 | Reference edits vanished after editing the Word file | A citation was added or removed, so the app could not tell which copy each edit belonged to. It reports how many and keeps them in the session rather than applying them to the wrong citation |
 | Heading map not loading | Attach the `.json` via the file picker, or paste its contents in the Advanced section — either works (if both are filled, the pasted text wins) |
+| "…has N unresolved tracked changes" | The Word file still has revision marks. In Word: **Review → Accept → Accept All Changes**, or reject them, then save and re-upload. This is refused rather than warned about because the two readers of the file disagree about what the text says |
 | Session data lost | Sessions live in temp — restart doesn't clear them, but OS cleanup might |

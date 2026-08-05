@@ -6,6 +6,12 @@ behind them. Keep it in sync with the code: when a change alters user-visible
 behavior, an invariant, or the module layout, update this file in the same
 change set.
 
+**Sections 1–16 describe the system. Sections 17–20 are closed historical
+records of audits and review rounds. §21 is the standing carry-forward
+register** — open work, deferred decisions, and the verification lessons this
+project has paid for. Put notes there rather than in a commit message when they
+should outlive the change.
+
 For setup and step-by-step usage see `README.md`; for the in-app editor guide
 see `instructions.md`; for the companion config generator see
 `README_config_generator.md`.
@@ -367,6 +373,26 @@ restarts the process and sessions are short-lived temp directories.
   filtered through `utils/url_policy.is_safe_href` (internal anchors, http(s),
   mailto only); unsafe schemes (`javascript:`, `data:`, …) are dropped/rendered
   as plain text.
+- **Client-side rendering never builds markup from page text.** `wordpress.js`
+  reads heading text out of the published document to build search results; when
+  that text was assigned with `innerHTML`, a heading containing markup executed
+  in every reader's browser. Results are now assembled as DOM nodes
+  (`appendHighlighted` emits text nodes and `<span>` elements; `createSnippet`
+  returns plain text). `tests/test_wordpress_js_safety.py` scans the source and
+  fails on any `innerHTML`/`outerHTML`/`insertAdjacentHTML`/`document.write`
+  assignment. **That guard proves the file is safe, never that search still
+  works** — see §21.
+- **Colours reaching the stylesheet are validated as colours.**
+  `normalize_hex_color` checks the digits, not just the length, and
+  `build_theme_css` re-normalizes every key in `_COLOR_KEYS` at render time.
+  Validating only at input left values stored in an old session or a
+  someone-else-assembled bundle able to close the declaration and inject rules.
+- **Uploaded documents must have no unresolved revision marks.** Not a
+  confidentiality control but an integrity one: the pipeline's two readers of a
+  DOCX disagree about `<w:ins>`/`<w:del>`, so a tracked-changes document
+  publishes text that neither reader fully saw. `count_tracked_changes` scans
+  `document.xml`, `footnotes.xml` and `endnotes.xml`, and `/convert` and
+  `/import_bundle` refuse with the count.
 - **Template output** is Jinja-autoescaped. Server-built HTML strings (e.g. the
   reference-highlight markup) escape their components before assembling and are
   wrapped in `Markup` only after.
@@ -428,6 +454,16 @@ heading-prefix token helpers, `_norm_char`/`_normalized`, `_int_to_roman`,
 `_int_to_letters`) rather than carrying its own copies. `tests/` asserts these are
 the *same objects* so the two apps cannot drift.
 
+Its session routes (`/export`, `/example`, `/editor`) validate the supplied id
+with `config.is_valid_session_id` and 404 on anything else; before that a
+`..%5C` id walked out of the session directory. **This does not make it safe to
+deploy** — it still has no authentication, no CSRF, and `debug=True`. It is a
+local tool and §21 tracks the decision about its future.
+
+Importing a config file whose shape the editor does not expect returns a
+described error (`_describe_config_shape_problem`) rather than a 500;
+`empty_analysis()` supplies the structure the template requires.
+
 It deliberately keeps a few generator-specific helpers (e.g. a `_HEADING_PREFIX_RE`
 that additionally strips spelled-out chapter words like "Chapter One" for style
 previews; preview-only prefix helpers). The three `_HEADING_PREFIX_RE` copies
@@ -458,7 +494,7 @@ html_processor and docx_processor are behaviorally identical.
 
 ## 13. Testing
 
-`python -m pytest tests/ -q` — **268 tests.** Runtime deps in
+`python -m pytest tests/ -q` — **319 tests.** Runtime deps in
 `requirements.txt`; test deps add `pytest` via `requirements-dev.txt`. CI
 (`.github/workflows/ci.yml`) installs the pinned Pandoc and the ranged
 requirements and runs the suite on every push to `main` and every PR.
@@ -491,6 +527,14 @@ Coverage by area:
   preview cache hit on refresh and bust on theme/CSS change; bundle
   export→import round trip; HTML re-import; CSRF enforcement; session/token
   hardening; bundle manifest-path rejection; review-page href filtering.
+- **Tracked changes** (`test_tracked_changes_guard.py`): revision marks are
+  counted across the three document parts, a non-DOCX does not raise, both upload
+  routes refuse with the count and the remedy, and a clean document is
+  unaffected.
+- **Client-side safety** (`test_wordpress_js_safety.py`): a source scan of
+  `wordpress.js` for HTML-string assignment. Its own parser was wrong on the
+  first attempt (it split statements on the first `;`, which fell inside a CSS
+  string), so the file carries a self-test on the parser as well.
 - **Auth** (`test_auth.py`): login gate redirects, public-endpoint allowlist,
   login success/failure, logout, and per-session ownership isolation (one user
   cannot reach another's session).
@@ -577,6 +621,9 @@ version matches `PANDOC_PINNED_VERSION` (no "older than pinned" warning);
   colour forcing above it.
 
 ### Future candidates (none urgent, nothing blocking)
+
+*Ranked open work and deferred decisions live in §21; these are smaller
+refactors with no external consequence.*
 
 - Extract `review()`'s POST-save block and `do_convert()`'s artifact-export block
   into service functions (currently single-call-site, no duplication).
@@ -1103,3 +1150,113 @@ suggestions against the actual manual before acting on them (§15).
   established.
 - **Revised DOCX on bundle import** (`e0e69bf`, §4). Replaced a maintainer script
   that would have been a second implementation of the same operation.
+
+### Rounds 3 and 4 — commits `9b3985f`, `c2497da`
+
+Round 3 was a from-scratch review of the whole repository rather than of a
+specific change. Four confirmed defects, three suspicions, three judgement calls.
+
+1. **Stored cross-site scripting in the published page** (§8). `wordpress.js`
+   built search results with `innerHTML` from heading text, so markup in a
+   heading ran in every reader's browser — on a live WSU page, not in the app.
+2. **Directory traversal in the config generator** (§11), reachable with `..%5C`.
+3. **A 500 on importing a config of an unexpected shape** (§11).
+4. **Manual content in logs and a debug panel.** Per-reference log lines carried
+   curated text; reduced to booleans, panel removed.
+5. **Colour validation** (a suspicion, confirmed and worse than reported, §8).
+
+Round 4 re-verified those fixes and pushed on what they might have broken. It
+ran the browser probe I could not — the extension was disconnected here — and
+confirmed the XSS is closed *and* that search still works, at roughly 5 ms over
+320 headings. Nothing in this repository can make that check; see §21.
+
+The remaining work from round 4 is in §21 rather than here, because it is open
+rather than done.
+
+### Tracked changes (`c2497da`)
+
+Found by inspecting a real returned document rather than by review. §8 has the
+mechanism; the operational rule is in the README. The measurement worth keeping:
+43 pending changes produced 14 empty headings and two silently unlinked
+references, with no error anywhere.
+
+---
+
+## 21. Carry-forward — open work, and how to check it
+
+*This section is the standing register. It is where a finding, a decision, or a
+piece of hard-won context goes when the work is not finished, so the next person
+— or the next review — starts from here instead of rediscovering it. Sections
+17–20 are historical and closed; this one is meant to be edited.*
+
+### Open work, in the order it is worth doing
+
+1. **A golden regression suite over real content.** The largest undocumented
+   risk in the project, and both reviewers independently landed on it. 319 tests
+   run almost entirely against a small synthetic DOCX generated by python-docx,
+   while every defect that reached the published page was found by looking at
+   the real manual. The obstacle is real: the input is a confidential policy
+   manual and cannot go in the repo. The shape that probably works is a
+   checked-in **fingerprint** rather than content — heading count, anchor list,
+   internal/external link counts, dead-link count, table classifications — with
+   the DOCX supplied from outside the repo by whoever runs it. The numbers this
+   project has regression-checked by hand all year are exactly that fingerprint:
+   **297 headings, 90 internal links, 0 dead, 29 external, 1 caption, 0
+   truncated.**
+2. **Decide what `docx_config_generator.py` is.** It is a deployable Flask app
+   with `debug=True`, no auth and no CSRF that ships in the same image as the
+   converter. Validating session ids fixed the traversal but not the category.
+   Either take it off the deployable surface (a script, or `if __name__` only,
+   or a separate image) or give it the same gate as the main app. Leaving it as
+   "local-only by convention" is the status quo and is the thing to stop doing.
+3. **Consolidate the duplicated parsing.** `generate_stable_ref_id` exists in
+   two modules and `_HEADING_PREFIX_RE` in three. Parity tests pin them, which
+   catches drift but does not prevent it, and a reader has to check three places
+   to know what the rule is.
+4. **`#manual-back-to-top` site-wide ID selectors.** Same class of leak as the
+   two `.manual-toc` rules already scoped, rated lower risk because an id
+   collision is less likely than a class collision. Unfinished, not dismissed.
+5. **Unused imports and locals** reported by pyflakes.
+
+### Architecture, deferred deliberately
+
+Durable session storage, per-session locking, an audit history of who changed
+what, and mandatory auth in deployed environments. All four follow from the same
+assumption — one operator, sessions in temp, trust inside the process — recorded
+in §5 and §16. They become necessary together, when that assumption stops
+holding, not one at a time.
+
+### What this codebase has learned about verifying itself
+
+These are not style preferences. Each one cost real rework in this project.
+
+- **A real document outranks a constructed counter-example.** A reviewer's
+  suggestion to treat `(` and `[` as label continuations was correct in the
+  abstract and silently unlinked three genuine statute citations in the actual
+  manual (§20). Check suggestions against the manual before acting on them.
+- **Tests written alongside a fix inherit the fix's assumptions.** This has
+  happened twice, and both times the test passed while asserting the bug
+  (`test_reference_keys.py` in round 1; the JS-safety parser in round 3, which
+  was wrong about JavaScript). An independent reviewer is told explicitly not to
+  trust the tests shipping with the change — keep that instruction.
+- **A guard can pass without applying.** A CSS scoping edit was reported as
+  fixed when its selector never matched. Confirm a fix takes effect on the
+  artifact, not just that the edit landed in the file.
+- **Fixing per-branch misses cases; prefer one post-pass.** Citation-prefix
+  absorption fixed in one branch still missed `RCW Chapter 42.52`.
+- **Nothing here tests behaviour in a browser.** `wordpress.js` has a source
+  scan and no runtime test at all. A change that made search safe *and useless*
+  would pass all 319 tests. Until there is a browser harness, JS changes need a
+  human or an external agent to open the page.
+- **Ids are positional, so a matching id is not proof of identity.** The
+  reference-key remapping learned this the expensive way (§20, round 1). Any new
+  code that pairs old state to new content by id needs the same suspicion.
+
+### Where the confidential material is, and is not
+
+The session bundle, `Faculty_Manual_FINAL.html`, the DOCX and the derived
+`Faculty_Manual_document_issues.md` contain the full text of a live WSU policy
+manual. They are gitignored (`*_session*.zip`, `manual_fragment*.html`,
+`*_FINAL.html`, `Faculty_Manual*`, `GSPP*`, `facsen*`) and must not be committed
+or sent to an external service. The patterns were widened twice after near
+misses; widen them again rather than relying on care.
