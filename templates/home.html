@@ -196,7 +196,13 @@
       <p class="small">Restore a full saved session you exported earlier—not the same as “start from Word” or “start from HTML” above.</p>
       <form action="/import_bundle" method="post" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="file" name="bundle" accept=".zip" required style="margin-bottom:10px">
+        <label for="bundle_zip">Session bundle</label>
+        <input id="bundle_zip" type="file" name="bundle" accept=".zip" required style="margin-bottom:10px">
+
+        <label for="revised_docx" style="margin-top:6px;">Revised Word document <span class="small">(optional)</span></label>
+        <input id="revised_docx" type="file" name="revised_docx" accept=".docx" style="margin-bottom:6px">
+        <p class="small" style="margin:0 0 10px 0;">If the manual has been edited since this bundle was exported, upload the new <code>.docx</code> here. It replaces the copy inside the bundle and your reference review is kept — you do not need to repackage the zip.</p>
+
         <button type="submit" style="padding: 8px 16px; font-size:14px">Restore session</button>
       </form>
     </div>

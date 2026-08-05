@@ -142,7 +142,7 @@ download route.
 | POST | `/update_theme` | `update_theme` | Persist theme settings; redirect to re-convert. |
 | POST | `/export/<uuid>` | `export_session` | Build and return a session-bundle ZIP. |
 | POST | `/import_html` | `import_html` | Import a saved HTML page, start a session. |
-| POST | `/import_bundle` | `import_bundle` | Import a session-bundle ZIP. |
+| POST | `/import_bundle` | `import_bundle` | Import a session-bundle ZIP, optionally with a revised DOCX replacing the bundled one. |
 
 All session routes use Flask's `<uuid:...>` converter; download tokens are also
 `<uuid:...>`. CSRF protection (Flask-WTF) covers every POST form. When
@@ -188,6 +188,16 @@ Restores a full session exported earlier (DOCX + edits + manifest, optionally
 the stable map). After ZIP validation (§8) and a manifest-path check, it
 re-runs the same shared pre-pipeline as `/convert`, driven by the manifest
 rather than form fields.
+
+An optional **revised DOCX** may be uploaded alongside the bundle. It replaces
+the bundled document, and the manifest hash warning is suppressed because the
+mismatch is then intentional. This closes the editing round trip: the bundle
+carries the reference review, the upload carries the editor's changes to the
+Word file, and `services/reference_keys` re-attaches the edits to citations that
+moved (§19). Without it the operator had to repackage the ZIP by hand, where
+zipping the extracted folder rather than its contents, or renaming the document,
+produced errors ("Invalid bundle: manifest.json missing", "Security error:
+Malicious bundle detected") that describe the check rather than the mistake.
 
 **Invariant:** `/convert`, `/import_html`, and `/import_bundle` all produce a
 `session_data` dict through the single builder
@@ -429,7 +439,7 @@ html_processor and docx_processor are behaviorally identical.
 
 ## 13. Testing
 
-`python -m pytest tests/ -q` — **197 tests.** Runtime deps in
+`python -m pytest tests/ -q` — **268 tests.** Runtime deps in
 `requirements.txt`; test deps add `pytest` via `requirements-dev.txt`. CI
 (`.github/workflows/ci.yml`) installs the pinned Pandoc and the ranged
 requirements and runs the suite on every push to `main` and every PR.

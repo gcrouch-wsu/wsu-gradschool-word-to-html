@@ -202,6 +202,17 @@ def import_bundle():
         flash("Please upload a .zip session bundle.")
         return redirect(url_for("index"))
 
+    # Optional: a newer Word file to use instead of the one inside the bundle.
+    # This is the return leg of the editing cycle — the bundle holds the
+    # reference review, the upload holds the editor's changes.
+    revised_docx = request.files.get("revised_docx")
+    revised_name = secure_filename(revised_docx.filename) if revised_docx and revised_docx.filename else ""
+    if revised_docx and revised_docx.filename and not revised_name.lower().endswith(".docx"):
+        flash("The revised document must be a .docx file.")
+        return redirect(url_for("index"))
+    if not revised_name:
+        revised_docx = None
+
     # Phase 1: Initialize Session
     session_id = str(uuid.uuid4())
     session = SessionDir(session_id, create=True)
@@ -307,22 +318,39 @@ def import_bundle():
         # Verify hash. A mismatch is deliberately non-fatal: operators sometimes
         # swap an edited DOCX into an exported bundle, and the review steps that
         # follow give them a chance to catch real problems. Warn, don't block.
+        # (Suppressed when a revised DOCX was supplied below — there the
+        # mismatch is the whole point, and warning about it is just noise.)
         expected_hash = manifest.get("doc_hash", "")
         actual_hash = compute_sha256(doc_path)
-        if expected_hash and expected_hash != actual_hash:
+        if expected_hash and expected_hash != actual_hash and not revised_docx:
             flash("Warning: DOCX hash does not match manifest. Proceeding to import anyway.")
 
         # Standardize filenames in the isolated session
         dest_doc = session.source_docx
         dest_edits = session.edits_json
-        
+
         # If the filenames in zip weren't already standardized, move them
         if doc_path != dest_doc:
             shutil.move(str(doc_path), str(dest_doc))
         if edits_path != dest_edits:
             shutil.move(str(edits_path), str(dest_edits))
 
-        flash(f"Session imported for {doc_name}.")
+        if revised_docx:
+            # Closes the editing round trip: the bundle carries the reference
+            # review, the newly uploaded file carries the edits made in Word.
+            # Without this the operator had to repackage the zip by hand, where
+            # zipping the folder instead of its contents, or renaming the
+            # document, produced errors ("manifest.json missing", "Malicious
+            # bundle detected") that say nothing about what actually went wrong.
+            revised_docx.save(str(dest_doc))
+            flash(
+                f"Using the revised document “{revised_name}” in place of the one "
+                f"in the bundle. Your reference review is kept — anything that could "
+                "not be matched to a citation is reported below."
+            )
+            logger.info("Bundle import: replaced %s with uploaded %s", doc_name, revised_name)
+        else:
+            flash(f"Session imported for {doc_name}.")
 
         # Immediately start a review session from the imported doc/edits
         try:
