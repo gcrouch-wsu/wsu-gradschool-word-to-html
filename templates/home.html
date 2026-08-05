@@ -68,9 +68,17 @@
       <a href="{{ url_for('download', session_id=session_id, token=token, kind='fragment') }}" class="btn" style="background:#16a34a; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Download Fragment</a>
       <a href="{{ url_for('download', session_id=session_id, token=token, kind='fragment_css') }}" class="btn" style="background:#059669; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Fragment + CSS</a>
       <a href="{{ url_for('download', session_id=session_id, token=token, kind='docx') }}" class="btn" style="background:#7c3aed; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Download DOCX</a>
-      <a href="{{ url_for('download', session_id=session_id, token=token, kind='css') }}" class="btn" style="background:#0891b2; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Download CSS</a>
+      <a href="{{ url_for('download', session_id=session_id, token=token, kind='css') }}" class="btn" style="background:#0891b2; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;" title="Base stylesheet plus this session's theme settings (colours, fonts, table theme)">Download CSS + theme</a>
+      <a href="{{ url_for('download', session_id=session_id, token=token, kind='css_base') }}" class="btn" style="background:#0e7490; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;" title="Base stylesheet only — matches a site that has never installed the theme block">Download CSS (base only)</a>
       <a href="{{ url_for('download', session_id=session_id, token=token, kind='js') }}" class="btn" style="background:#d97706; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Download JS</a>
       <a href="{{ url_for('download', session_id=session_id, token=token, kind='heading_map') }}" class="btn" style="background:#be185d; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Download Heading Map</a>
+      {% if has_tables %}
+      {# Always reachable from here. Table Review otherwise only appears mid-flow
+         when "Edit tables" was ticked at upload, so an imported session — whose
+         manifest usually carries edit_tables false — could never reach the
+         per-table header, alignment and placement controls. #}
+      <a href="{{ url_for('table_review', session_id=session_id) }}" class="btn" style="background:#334155; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Table settings&hellip;</a>
+      {% endif %}
       <form action="{{ url_for('export_session', session_id=session_id) }}" method="post" style="display:inline;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" style="background:#0284c7">Export Session Bundle (.zip)</button>

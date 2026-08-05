@@ -281,7 +281,7 @@ Hide Reviewed Items
                     }
                     editInput.value = targetLabel();
                 }
-                function syncIgnoreState() {
+                function syncIgnoreState(fromUser) {
                     if (container) {
                         container.classList.toggle('ref-collapsed', ignoreBox.checked);
                     }
@@ -296,6 +296,11 @@ Hide Reviewed Items
                         targetSelect.setAttribute('aria-disabled', 'true');
                         editInput.setAttribute('aria-disabled', 'true');
                         externalInput.setAttribute('aria-disabled', 'true');
+                        // Clear it rather than just greying it: a readonly input
+                        // still submits, and the server drops External URLs on
+                        // ignored references (Ignore wins). Leaving a visible
+                        // value that will not be saved is the confusing part.
+                        if (fromUser) { externalInput.value = ''; }
                     } else {
                         targetSelect.style.pointerEvents = '';
                         targetSelect.style.opacity = '';
@@ -320,10 +325,10 @@ Hide Reviewed Items
                         editInput.value = targetLabel();
                     }
                 }
-                ignoreBox.addEventListener('change', syncIgnoreState);
+                ignoreBox.addEventListener('change', function () { syncIgnoreState(true); });
                 validBox.addEventListener('change', applyAutoMatch);
                 targetSelect.addEventListener('change', function() { syncTargetToOverride(true); });
-                syncIgnoreState();
+                syncIgnoreState(false);
                 syncTargetToOverride(false);
                 applyAutoMatch();
             })();

@@ -68,9 +68,25 @@ def download(session_id, token, kind):
 
 
     if kind == "css":
+        # Base stylesheet + this session's theme block.
         css_file = session.root / f"{token}_wordpress.css"
         if css_file.exists():
             return send_file(str(css_file), as_attachment=True, download_name="wordpress.css")
+
+    if kind == "css_base":
+        # Base stylesheet only. A site that installed the base sheet and never
+        # the theme block will silently disagree with the app's preview — that
+        # is how a table header rendered crimson here and grey in the preview.
+        # Offering the exact file the repo ships makes "update the site CSS" a
+        # replace, not a merge.
+        base_css = get_wp_css_text()
+        if base_css:
+            return send_file(
+                io.BytesIO(base_css.encode("utf-8")),
+                as_attachment=True,
+                download_name="wordpress.css",
+                mimetype="text/css",
+            )
     
     if kind == "js":
         js_path = Path(app.root_path) / "wordpress.js"

@@ -189,3 +189,32 @@ def test_dangerous_value_is_reported_and_never_stored(client_nocsrf, review_sess
                    {f"ref_external_{ref_ids[0]}": "javascript:alert(1)", "save_edits": "1"}).get_data(as_text=True)
     assert "were NOT saved" in body
     assert _saved_urls(sid) == {}
+
+
+# --- ignored reference + External URL conflict ---------------------------
+
+@pandoc_required
+def test_ignored_reference_drops_its_external_url_and_says_so(client_nocsrf, review_session):
+    """The two settings contradict; ignore wins, and it must not do so silently."""
+    sid, ref_ids = review_session
+    body = _submit(client_nocsrf, sid, ref_ids, {
+        f"ref_ignore_{ref_ids[0]}": "on",
+        f"ref_external_{ref_ids[0]}": "https://wsu.edu/x",
+        "save_edits": "1",
+    }).get_data(as_text=True)
+    assert _saved_urls(sid) == {}, "an ignored reference must not keep a URL"
+    assert "were NOT saved because their reference is marked" in body
+    assert "https://wsu.edu/x" in body, "the message must name the dropped value"
+
+
+@pandoc_required
+def test_unticking_ignore_restores_the_url(client_nocsrf, review_session):
+    sid, ref_ids = review_session
+    _submit(client_nocsrf, sid, ref_ids, {
+        f"ref_ignore_{ref_ids[0]}": "on",
+        f"ref_external_{ref_ids[0]}": "https://wsu.edu/x",
+        "save_edits": "1",
+    })
+    _submit(client_nocsrf, sid, ref_ids,
+            {f"ref_external_{ref_ids[0]}": "https://wsu.edu/x", "save_edits": "1"})
+    assert list(_saved_urls(sid).values()) == ["https://wsu.edu/x"]

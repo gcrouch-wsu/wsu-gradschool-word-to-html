@@ -32,6 +32,7 @@ from services.session_state import (
     load_edits_data,
     save_edits_data,
 )
+from services.reference_keys import remap_reference_edits
 from services.docx_session import (
     run_docx_prepipeline,
     scrape_new_structure,
@@ -566,168 +567,182 @@ def review(session_id):
         logger.debug(f"Sample new headings: {list(new_headings.keys())[:3]}")
     
     if request.method == 'POST':
-        # CRITICAL DEBUG: Log ALL form data at the very start
-        logger.debug("="*80)
-        logger.debug("POST REQUEST RECEIVED")
-        logger.debug("="*80)
-        logger.debug(f"Request method: {request.method}")
-        logger.debug(f"Form has {len(request.form)} total keys")
-        logger.debug(f"All form keys: {list(request.form.keys())}")
-        logger.debug(f"Raw form data (first 20 items): {dict(list(request.form.items())[:20])}")
-        logger.debug(f"'save_edits' in form? {('save_edits' in request.form)}")
-        logger.debug(f"'proceed' in form? {('proceed' in request.form)}")
-        logger.debug("="*80)
+        # Log the shape of the submission, not its contents: the form carries the
+        # manual's reference text and operator-entered URLs, which do not belong
+        # in a log file even at DEBUG.
+        logger.debug(
+            "review POST: %d form keys, buttons=%s",
+            len(request.form),
+            [k for k in ("save_edits", "proceed", "next_page", "prev_page") if k in request.form],
+        )
 
-        # Save on any POST so Enter submits don't drop changes
-        if True:
-            logger.debug(f"SAVE HANDLER EXECUTING - Save request received. Form keys: {list(request.form.keys())[:10]}...")
+        # Save on any POST so Enter submits don't drop changes.
 
-            # Save reference edits, validations, and link targets to persistent file
-            edits = {}
-            validations = {}
-            link_targets = {}
-            ignored = {}
-            external_urls = {}
-            if html_import:
-                rebuild_links = 'rebuild_links' in request.form
-                session_data['rebuild_links'] = rebuild_links
-            # edit_tables was set during initial upload; preserve it from session
-            edit_tables = session_data.get('edit_tables', False)
-            edit_file = session.edits_json
-            existing_data = load_edits_data(session)
-            edits = existing_data.get('reference_edits', {}) or {}
-            validations = existing_data.get('reference_validations', {}) or {}
-            link_targets = existing_data.get('reference_link_targets', {}) or {}
-            ignored = existing_data.get('reference_ignored', {}) or {}
-            external_urls = existing_data.get('reference_external_urls', {}) or {}
+        # Save reference edits, validations, and link targets to persistent file
+        edits = {}
+        validations = {}
+        link_targets = {}
+        ignored = {}
+        external_urls = {}
+        if html_import:
+            rebuild_links = 'rebuild_links' in request.form
+            session_data['rebuild_links'] = rebuild_links
+        # edit_tables was set during initial upload; preserve it from session
+        edit_tables = session_data.get('edit_tables', False)
+        edit_file = session.edits_json
+        existing_data = load_edits_data(session)
+        edits = existing_data.get('reference_edits', {}) or {}
+        validations = existing_data.get('reference_validations', {}) or {}
+        link_targets = existing_data.get('reference_link_targets', {}) or {}
+        ignored = existing_data.get('reference_ignored', {}) or {}
+        external_urls = existing_data.get('reference_external_urls', {}) or {}
 
-            # Collect all reference IDs from the form
-            all_ref_ids = set()
-            for key in request.form.keys():
-                if key.startswith('ref_edit_'):
-                    ref_id = key.replace('ref_edit_', '')
-                    all_ref_ids.add(ref_id)
-                elif key.startswith('ref_valid_'):
-                    ref_id = key.replace('ref_valid_', '')
-                    all_ref_ids.add(ref_id)
-                elif key.startswith('ref_target_'):
-                    ref_id = key.replace('ref_target_', '')
-                    all_ref_ids.add(ref_id)
-                elif key.startswith('ref_ignore_'):
-                    ref_id = key.replace('ref_ignore_', '')
-                    all_ref_ids.add(ref_id)
-                elif key.startswith('ref_external_'):
-                    ref_id = key.replace('ref_external_', '')
-                    all_ref_ids.add(ref_id)
+        # Collect all reference IDs from the form
+        all_ref_ids = set()
+        for key in request.form.keys():
+            if key.startswith('ref_edit_'):
+                ref_id = key.replace('ref_edit_', '')
+                all_ref_ids.add(ref_id)
+            elif key.startswith('ref_valid_'):
+                ref_id = key.replace('ref_valid_', '')
+                all_ref_ids.add(ref_id)
+            elif key.startswith('ref_target_'):
+                ref_id = key.replace('ref_target_', '')
+                all_ref_ids.add(ref_id)
+            elif key.startswith('ref_ignore_'):
+                ref_id = key.replace('ref_ignore_', '')
+                all_ref_ids.add(ref_id)
+            elif key.startswith('ref_external_'):
+                ref_id = key.replace('ref_external_', '')
+                all_ref_ids.add(ref_id)
 
-            logger.debug(f"Collected {len(all_ref_ids)} reference IDs from form: {sorted(list(all_ref_ids))[:10]}")
+        logger.debug(f"Collected {len(all_ref_ids)} reference IDs from form: {sorted(list(all_ref_ids))[:10]}")
 
-            # External URL values that could not be made into a safe link. Kept
-            # so the operator is told which ones were not saved.
-            rejected_external: list[str] = []
+        # External URL values that could not be made into a safe link. Kept
+        # so the operator is told which ones were not saved.
+        rejected_external: list[str] = []
+        # External URLs dropped because their reference is also marked Ignore.
+        ignored_with_url: list[str] = []
 
-            # Process edits, validations, and targets
-            for ref_id in all_ref_ids:
-                # ref_id is already a stable ID (e.g., "ref_42_123_a1b2c3d4"), use it directly
-                edit_key = ref_id
+        # Process edits, validations, and targets
+        for ref_id in all_ref_ids:
+            # ref_id is already a stable ID (e.g., "ref_42_123_a1b2c3d4"), use it directly
+            edit_key = ref_id
 
-                # Save edit text
-                edit_value = request.form.get(f'ref_edit_{ref_id}', '').strip()
-                if edit_value:
-                    edits[edit_key] = edit_value
-                elif edit_key in edits:
-                    edits.pop(edit_key, None)
+            # Save edit text
+            edit_value = request.form.get(f'ref_edit_{ref_id}', '').strip()
+            if edit_value:
+                edits[edit_key] = edit_value
+            elif edit_key in edits:
+                edits.pop(edit_key, None)
 
-                # Save validation status (checkbox checked = valid)
-                is_valid = f'ref_valid_{ref_id}' in request.form
-                is_ignored = f'ref_ignore_{ref_id}' in request.form
-                if is_ignored:
-                    is_valid = False
-                validations[edit_key] = is_valid
-                if is_ignored:
-                    ignored[edit_key] = True
-                elif edit_key in ignored:
-                    ignored.pop(edit_key, None)
+            # Save validation status (checkbox checked = valid)
+            is_valid = f'ref_valid_{ref_id}' in request.form
+            is_ignored = f'ref_ignore_{ref_id}' in request.form
+            if is_ignored:
+                is_valid = False
+            validations[edit_key] = is_valid
+            if is_ignored:
+                ignored[edit_key] = True
+            elif edit_key in ignored:
+                ignored.pop(edit_key, None)
 
-                # Save link target (heading to link to)
-                target_value = request.form.get(f'ref_target_{ref_id}', '').strip()
-                if target_value:
-                    link_targets[edit_key] = target_value
-                elif edit_key in link_targets:
-                    link_targets.pop(edit_key, None)
+            # Save link target (heading to link to)
+            target_value = request.form.get(f'ref_target_{ref_id}', '').strip()
+            if target_value:
+                link_targets[edit_key] = target_value
+            elif edit_key in link_targets:
+                link_targets.pop(edit_key, None)
 
-                # Save external URL (link to other manuals). Only persist
-                # safe-scheme URLs: the export re-sanitizes, but unsafe values
-                # should not linger in session.json to be reused elsewhere.
-                # A scheme-less host ("policies.wsu.edu/x") is promoted to
-                # https rather than discarded; anything still refused is
-                # reported below instead of vanishing from the form silently.
-                external_raw = request.form.get(f'ref_external_{ref_id}', '').strip()
-                external_value = normalize_external_href(external_raw)
-                if external_value:
-                    external_urls[edit_key] = external_value
-                else:
-                    if external_raw:
-                        rejected_external.append(external_raw)
-                    external_urls.pop(edit_key, None)
+            # Save external URL (link to other manuals). Only persist
+            # safe-scheme URLs: the export re-sanitizes, but unsafe values
+            # should not linger in session.json to be reused elsewhere.
+            # A scheme-less host ("policies.wsu.edu/x") is promoted to
+            # https rather than discarded; anything still refused is
+            # reported below instead of vanishing from the form silently.
+            external_raw = request.form.get(f'ref_external_{ref_id}', '').strip()
+            external_value = normalize_external_href(external_raw)
+            if is_ignored and external_value:
+                # The two settings contradict each other and the pipeline
+                # resolves it in favour of Ignore, so storing the URL would
+                # leave a value that quietly does nothing. Drop it and say so.
+                ignored_with_url.append(external_value)
+                external_value = ""
+            if external_value:
+                external_urls[edit_key] = external_value
+            else:
+                if external_raw and not is_ignored:
+                    rejected_external.append(external_raw)
+                external_urls.pop(edit_key, None)
 
-                # Debug output
-                logger.debug(f"Saving {ref_id}: valid={is_valid}, ignored={is_ignored}, edit='{edit_value[:30] if edit_value else '(none)'}...', target='{target_value[:30] if target_value else '(none)'}...', external='{external_value[:30] if external_value else '(none)'}...'")
+            # Debug output
+            logger.debug(f"Saving {ref_id}: valid={is_valid}, ignored={is_ignored}, edit='{edit_value[:30] if edit_value else '(none)'}...', target='{target_value[:30] if target_value else '(none)'}...', external='{external_value[:30] if external_value else '(none)'}...'")
 
-            # Save to persistent edit file
-            edit_data = {
-                'document': filename,
-                'auto_crosswalk': auto_crosswalk,
-                'approved_crosswalk': approved_crosswalk,
-                'reference_edits': edits,
-                'reference_validations': validations,
-                'reference_link_targets': link_targets,
-                'reference_ignored': ignored,
-                'reference_external_urls': external_urls,
-                'last_updated': str(datetime.now())
-            }
-            save_edits_data(session, edit_data)
-            session_data['approved_crosswalk'] = approved_crosswalk
-            session_data['reference_edits'] = edits
-            session_data['reference_validations'] = validations
-            session_data['reference_link_targets'] = link_targets
-            session_data['reference_ignored'] = ignored
-            session_data['reference_external_urls'] = external_urls
-            save_session_data(session, session_data)
+        # Save to persistent edit file
+        edit_data = {
+            'document': filename,
+            'auto_crosswalk': auto_crosswalk,
+            'approved_crosswalk': approved_crosswalk,
+            'reference_edits': edits,
+            'reference_validations': validations,
+            'reference_link_targets': link_targets,
+            'reference_ignored': ignored,
+            'reference_external_urls': external_urls,
+            'last_updated': str(datetime.now())
+        }
+        save_edits_data(session, edit_data)
+        session_data['approved_crosswalk'] = approved_crosswalk
+        session_data['reference_edits'] = edits
+        session_data['reference_validations'] = validations
+        session_data['reference_link_targets'] = link_targets
+        session_data['reference_ignored'] = ignored
+        session_data['reference_external_urls'] = external_urls
+        save_session_data(session, session_data)
 
-            # Count valid vs invalid references
-            valid_count = sum(1 for v in validations.values() if v)
-            invalid_count = sum(1 for v in validations.values() if not v)
+        # Count valid vs invalid references
+        valid_count = sum(1 for v in validations.values() if v)
+        invalid_count = sum(1 for v in validations.values() if not v)
 
-            # Debug: print save location
-            logger.debug(f"Saved edits to: {edit_file}")
-            logger.debug(f"Saved data - edits: {len(edits)} entries, validations: {len(validations)} entries ({valid_count} valid, {invalid_count} invalid), link_targets: {len(link_targets)} entries, external_urls: {len(external_urls)} entries")
-            logger.debug(f"Sample validations: {dict(list(validations.items())[:5])}")
+        # Debug: print save location
+        logger.debug(f"Saved edits to: {edit_file}")
+        logger.debug(f"Saved data - edits: {len(edits)} entries, validations: {len(validations)} entries ({valid_count} valid, {invalid_count} invalid), link_targets: {len(link_targets)} entries, external_urls: {len(external_urls)} entries")
+        logger.debug(f"Sample validations: {dict(list(validations.items())[:5])}")
 
-            flash(f"✓ Edits saved successfully! Found {valid_count} valid references, {invalid_count} skipped references. Saved to: {edit_file.name}. Export a session bundle to share or continue on another machine.")
-            if rejected_external:
-                unique_rejected = sorted(set(rejected_external))
-                shown = ", ".join(f"“{value[:60]}”" for value in unique_rejected[:3])
-                if len(unique_rejected) > 3:
-                    shown += f", and {len(unique_rejected) - 3} more"
-                flash(
-                    f"⚠ {len(unique_rejected)} External URL value(s) were NOT saved — "
-                    f"only http(s), mailto:, and #anchor links are allowed: {shown}. "
-                    "Re-enter them as a full web address."
-                )
-                logger.warning("Rejected %d External URL value(s): %s",
-                               len(unique_rejected), unique_rejected[:10])
-            if 'proceed' in request.form:
-                if edit_tables and has_tables:
-                    return redirect(url_for('table_review', session_id=session_id))
-                return redirect(url_for('do_convert', session_id=session_id))
-            if 'next_page' in request.form:
-                target_page = min(page + 1, total_pages)
-                return redirect(url_for('review', session_id=session_id, page=target_page))
-            if 'prev_page' in request.form:
-                target_page = max(page - 1, 1)
-                return redirect(url_for('review', session_id=session_id, page=target_page))
-            return redirect(url_for('review', session_id=session_id, page=page))
+        flash(f"✓ Edits saved successfully! Found {valid_count} valid references, {invalid_count} skipped references. Saved to: {edit_file.name}. Export a session bundle to share or continue on another machine.")
+        if rejected_external:
+            unique_rejected = sorted(set(rejected_external))
+            shown = ", ".join(f"“{value[:60]}”" for value in unique_rejected[:3])
+            if len(unique_rejected) > 3:
+                shown += f", and {len(unique_rejected) - 3} more"
+            flash(
+                f"⚠ {len(unique_rejected)} External URL value(s) were NOT saved — "
+                f"only http(s), mailto:, and #anchor links are allowed: {shown}. "
+                "Re-enter them as a full web address."
+            )
+            logger.warning("Rejected %d External URL value(s): %s",
+                           len(unique_rejected), unique_rejected[:10])
+        if ignored_with_url:
+            unique_conflicts = sorted(set(ignored_with_url))
+            shown = ", ".join(f"“{value[:60]}”" for value in unique_conflicts[:3])
+            if len(unique_conflicts) > 3:
+                shown += f", and {len(unique_conflicts) - 3} more"
+            flash(
+                f"⚠ {len(unique_conflicts)} External URL(s) were NOT saved because their "
+                f"reference is marked “Ignore”, which wins: {shown}. "
+                "Untick Ignore on those references if you want the links."
+            )
+            logger.warning("Dropped %d External URL(s) on ignored references: %s",
+                           len(unique_conflicts), unique_conflicts[:10])
+        if 'proceed' in request.form:
+            if edit_tables and has_tables:
+                return redirect(url_for('table_review', session_id=session_id))
+            return redirect(url_for('do_convert', session_id=session_id))
+        if 'next_page' in request.form:
+            target_page = min(page + 1, total_pages)
+            return redirect(url_for('review', session_id=session_id, page=target_page))
+        if 'prev_page' in request.form:
+            target_page = max(page - 1, 1)
+            return redirect(url_for('review', session_id=session_id, page=target_page))
         return redirect(url_for('review', session_id=session_id, page=page))
     
     # Use approved_crosswalk if provided, else auto_crosswalk for displaying OLD->NEW mappings
@@ -743,6 +758,16 @@ def review(session_id):
     # Load existing edits, validations, and link targets first
     edit_file = session.edits_json
     edit_data = load_edits_data(session)
+    # Same re-attachment the conversion does, so the review page shows the
+    # operator their saved work against the edited document rather than a page
+    # of blank fields. Persist it, so the next save writes the current ids.
+    edit_data, remapped = remap_reference_edits(references, edit_data)
+    if remapped:
+        save_edits_data(session, edit_data)
+        flash(
+            f"The document changed since these edits were saved — {remapped} "
+            "reference edit(s) were re-matched to their citations. Check them before converting."
+        )
     existing_edits = edit_data.get('reference_edits', {})
     existing_validations = edit_data.get('reference_validations', {})
     existing_link_targets = edit_data.get('reference_link_targets', {})
@@ -1199,6 +1224,16 @@ def do_convert(session_id):
     if edit_file.exists():
         try:
             edit_data = json.loads(edit_file.read_text(encoding='utf-8'))
+            # Re-attach edits whose citation moved because the DOCX was edited.
+            # Reference ids encode paragraph position, so an inserted paragraph
+            # shifts every id below it and the operator's curated link targets
+            # and external URLs silently stop applying.
+            edit_data, moved = remap_reference_edits(original_references, edit_data)
+            if moved:
+                flash(
+                    f"The document changed since these edits were saved — "
+                    f"{moved} reference edit(s) were re-matched to their citations."
+                )
             reference_edits = edit_data.get('reference_edits', {})
             reference_validations = edit_data.get('reference_validations', {})
             reference_link_targets = edit_data.get('reference_link_targets', {})
@@ -1292,6 +1327,7 @@ def do_convert(session_id):
                                        wordpress_css_tag=f"<style>{parts['combined_css']}</style>",
                                        wordpress_js_tag=f"<script>{wp_js}</script>",
                                        theme_settings=theme_settings,
+                                       has_tables=bool(meta.get("has_tables")),
                                        theme_id=theme_id)
 
         # 1. Source Acquisition
@@ -1322,6 +1358,8 @@ def do_convert(session_id):
             theme_id=theme_id,
             toc_html=toc_html,
         )
+
+        has_tables_in_output = "<table" in final_html
 
         # 4. Export Artifacts
         # Each (re)conversion issues a fresh token; drop the previous token's
@@ -1391,6 +1429,7 @@ def do_convert(session_id):
             "theme_id": theme_id,
             "docx_path": str(docx_path),
             "docx_ok": docx_ok,
+            "has_tables": has_tables_in_output,
             "docx_html_path": str(docx_html_path),
             "manual_content_path": str(manual_content_path),
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -1441,6 +1480,7 @@ def do_convert(session_id):
                                     wordpress_css_tag=f"<style>{combined_css}</style>",
                                     wordpress_js_tag=f"<script>{wp_js}</script>",
                                     theme_settings=theme_settings,
+                                    has_tables=has_tables_in_output,
                                     theme_id=theme_id)
 
     except Exception as e:

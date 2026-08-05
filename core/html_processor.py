@@ -1628,6 +1628,18 @@ def _apply_reference_edits_impl(soup: BeautifulSoup, edits: dict, references: li
         start = r[3]
         rid = generate_stable_ref_id(para, start, old)
         if reference_ignored and reference_ignored.get(rid):
+            # Ignore wins, but never silently. A reference can carry both flags
+            # — the External URL field is prefilled from links found in the
+            # paragraph, so a URL is not proof of intent, whereas ticking Ignore
+            # is. Saying so out loud matters: every one of the 25 curated URLs in
+            # the Faculty Manual sat on an ignored reference and produced
+            # nothing, with no indication why.
+            if reference_external_urls and reference_external_urls.get(rid):
+                logger.warning(
+                    "Reference %r is marked ignored but also carries the External "
+                    "URL %r — ignored wins, so no link is emitted. Clear Ignore if "
+                    "the link is wanted.", old, reference_external_urls.get(rid),
+                )
             continue
         if not (
             validations.get(rid)

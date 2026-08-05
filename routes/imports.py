@@ -279,12 +279,21 @@ def import_bundle():
         for name in zf_members:
             if name.endswith('/'):
                 continue
-            base = name.replace('\\', '/').rstrip('/').split('/')[-1]
-            if base not in allowed_members:
-                try:
-                    (session.root / base).unlink()
-                except OSError:
-                    pass
+            relative = name.replace('\\', '/').strip('/')
+            base = relative.split('/')[-1]
+            if base in allowed_members and '/' not in relative:
+                continue
+            # Delete at the path the member was actually extracted to, not just
+            # its basename: a member inside a subdirectory ("sub/evil.json")
+            # landed at session.root/sub/evil.json while this swept
+            # session.root/evil.json, so it survived. Extraction has already
+            # been confined to session.root (checked above), so the join is safe.
+            try:
+                target = (session.root / relative).resolve()
+                if target.is_file() and session.root.resolve() in target.parents:
+                    target.unlink()
+            except (OSError, ValueError):
+                pass
 
         doc_path = session.root / doc_name
         edits_path = session.root / edits_name

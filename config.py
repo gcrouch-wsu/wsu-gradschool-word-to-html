@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import tempfile
@@ -5,13 +6,44 @@ from pathlib import Path
 
 # --- Application Configuration ---
 # Environment-backed settings with sensible defaults
+def _env_int(name: str, default: int) -> int:
+    """Read an int from the environment, falling back on anything unparseable.
+
+    These run at import time, so a typo in one env var used to abort the whole
+    process with a bare ValueError and no indication of which setting was wrong.
+    """
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return int(str(raw).strip())
+    except ValueError:
+        logging.getLogger(__name__).warning(
+            "%s=%r is not a whole number; using the default %d.", name, raw, default
+        )
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return float(str(raw).strip())
+    except ValueError:
+        logging.getLogger(__name__).warning(
+            "%s=%r is not a number; using the default %s.", name, raw, default
+        )
+        return default
+
+
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "dev-secret")
-SESSION_TTL_HOURS = int(os.environ.get("SESSION_TTL_HOURS", "48"))
+SESSION_TTL_HOURS = _env_int("SESSION_TTL_HOURS", 48)
 
 # Bundle / ZIP import limits (uncompressed totals; defense-in-depth)
-ZIP_MAX_UNCOMPRESSED_BYTES = int(os.environ.get("ZIP_MAX_UNCOMPRESSED_BYTES", str(200 * 1024 * 1024)))
-ZIP_MAX_FILES = int(os.environ.get("ZIP_MAX_FILES", "5000"))
+ZIP_MAX_UNCOMPRESSED_BYTES = _env_int("ZIP_MAX_UNCOMPRESSED_BYTES", 200 * 1024 * 1024)
+ZIP_MAX_FILES = _env_int("ZIP_MAX_FILES", 5000)
 
 # --- Pandoc Version Policy ---
 # Pinned "known-good" Pandoc version. The app does not auto-upgrade; it only
@@ -24,10 +56,10 @@ PANDOC_UPDATE_CHECK_ENABLED = os.environ.get("PANDOC_UPDATE_CHECK_ENABLED", "1")
 
 # How long a successful update check is cached before the app will re-query
 # GitHub. Default: 7 days.
-PANDOC_UPDATE_CHECK_TTL_HOURS = int(os.environ.get("PANDOC_UPDATE_CHECK_TTL_HOURS", "168"))
+PANDOC_UPDATE_CHECK_TTL_HOURS = _env_int("PANDOC_UPDATE_CHECK_TTL_HOURS", 168)
 
 # Network timeout for the update check. Startup never waits longer than this.
-PANDOC_UPDATE_CHECK_TIMEOUT_SECONDS = float(os.environ.get("PANDOC_UPDATE_CHECK_TIMEOUT_SECONDS", "3.0"))
+PANDOC_UPDATE_CHECK_TIMEOUT_SECONDS = _env_float("PANDOC_UPDATE_CHECK_TIMEOUT_SECONDS", 3.0)
 
 # --- Path Configuration ---
 # All paths resolve under a single PERSIST_DIR
