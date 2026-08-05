@@ -14,5 +14,8 @@ archive/
 *_session*.zip
 manual_fragment*.html
 manual_standalone*.html
+*_FINAL.html
+Faculty_Manual*.html
+GSPP*.html
 *.session.json
 facsen*
