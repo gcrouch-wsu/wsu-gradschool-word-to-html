@@ -16,6 +16,8 @@ manual_fragment*.html
 manual_standalone*.html
 *_FINAL.html
 Faculty_Manual*.html
+Faculty_Manual*.md
+GSPP*.md
 GSPP*.html
 *.session.json
 facsen*
