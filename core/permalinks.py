@@ -12,11 +12,10 @@ SPELLED_NUMS = {
 }
 
 # --- Manual type ---------------------------------------------------------
-# `preprocess_docx` emits three values, not two: "chapter", "section", and
-# "policy" (any document whose opening paragraphs mention policies or
-# procedures — the Faculty Manual and GSPP both match). Policy manuals label
-# their top level "Section N", so "policy" resolves to the same prefix as
-# "section".
+# Documents are labeled "Chapter N" or "Section N" at the top level.
+# Detection prefers those heading labels (see detect_manual_type_from_docx).
+# "policy" is still accepted as an alias for section-style manuals (upload
+# override / older sessions) and collapses to the same prefix as "section".
 #
 # Everything that needs the label word must go through manual_prefix(). It used
 # to be decided independently in five places that disagreed: ensure_prefixed

@@ -2,7 +2,7 @@
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="csrf-token" content="{{ csrf_token() }}">
-<title>Review Crosswalk - WSU Manual Converter</title>
+<title>Review references - WSU Manual Converter</title>
 <style>
 body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; background: #f7f7f8; }
 .container { max-width: 1200px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
@@ -56,8 +56,9 @@ button:hover { background: #7a1728; }
 </head>
 <body>
 <div class="container">
-<h1>Review Crosswalk and References</h1>
-<p class="small">Workflow: validate references, save, then proceed to export.</p>
+<h1>Review body references</h1>
+<p class="small">Workflow: choose which cites become links, save, then continue to export.</p>
+{% if session_retention_note %}<p class="small" style="color:#64748b;">{{ session_retention_note }}</p>{% endif %}
 
 {% with messages = get_flashed_messages() %}
   {% if messages %}
@@ -71,30 +72,30 @@ button:hover { background: #7a1728; }
 
 <div class="info">
 <strong>File:</strong> {{ filename or 'Unknown' }}<br>
-<strong>Manual Type:</strong> {{ manual_type|title }}<br>
-<strong>References Found:</strong> {{ references_count }}<br>
-<strong>Review Page:</strong> {{ page }} of {{ total_pages }} ({{ showing_start }}-{{ showing_end }} of {{ total_paras }} paragraphs)<br>
-<strong>Auto-Matched OLD&rarr;NEW:</strong> {{ auto_crosswalk_count }}<br>
-<strong>NEW Headings Available:</strong> {{ headings_count }}<br>
-<strong>Previously Saved:</strong> {{ existing_validations_count }} validations ({{ valid_loaded }} valid, {{ invalid_loaded }} invalid)<br>
-<strong>HTML Import:</strong> {{ 'Yes' if html_import else 'No' }}<br>
-{% if html_import %}<strong>Linked References Detected:</strong> {{ linked_ref_count }}<br><strong>Rebuild Links:</strong> {{ 'Yes' if rebuild_links else 'No' }}{% endif %}
+<strong>Manual type:</strong> {{ manual_type|title }}<br>
+<strong>References found:</strong> {{ references_count }}<br>
+<strong>Review page:</strong> {{ page }} of {{ total_pages }} ({{ showing_start }}-{{ showing_end }} of {{ total_paras }} paragraphs)<br>
+<strong>Auto-matched to a heading:</strong> {{ auto_crosswalk_count }}<br>
+<strong>Headings available to link:</strong> {{ headings_count }}<br>
+<strong>Previously saved:</strong> {{ existing_validations_count }} decisions ({{ valid_loaded }} link, {{ invalid_loaded }} not)<br>
+<strong>Started from HTML:</strong> {{ 'Yes' if html_import else 'No' }}<br>
+{% if html_import %}<strong>Existing links detected:</strong> {{ linked_ref_count }}<br><strong>Rebuild links:</strong> {{ 'Yes' if rebuild_links else 'No' }}{% endif %}
 </div>
 
 
-<h2>Internal References Found</h2>
-<p>The following references to sections/chapters were found in the document body.</p>
+<h2>Internal references found</h2>
+<p>These chapter/section cites were found in the document body.</p>
 <div class="info" style="background: #fef3c7; border-left-color: #f59e0b;">
 <strong>Instructions:</strong>
 <ol style="margin: 8px 0; padding-left: 20px;">
-<li><strong>Review:</strong> Check the box for VALID chapter/section references (e.g., "Chapter 1.D" &rarr; "Chapter 1.4")</li>
-<li><strong>Skip non-links:</strong> Use "Skip linking" for acronyms or citations that should not link (e.g., "D.V.M", "Ph.D", "M.S.").</li>
-<li><strong>Edit if needed:</strong> Use Link text to correct the auto-match if needed</li>
-<li><strong>Save frequently:</strong> Click "Save Edits" to persist your progress - you can come back later!</li>
-<li><strong>Filter reviewed:</strong> Use the "Hide Reviewed Items" button below to focus on unreviewed references</li>
-<li><strong>External URLs:</strong> Links detected in the paragraph are listed for verification. Use the External URL field to add or correct links to other manuals.</li>
+<li><strong>Create a link:</strong> Check “Create a link for this cite” for real chapter/section references (e.g., "Chapter 1.D" &rarr; "Chapter 1.4")</li>
+<li><strong>Skip non-links:</strong> Use “Skip linking” for text that should not become a link (most degree acronyms are filtered automatically; use Skip for one-offs).</li>
+<li><strong>Edit if needed:</strong> Change the link target or link text when the auto-match is wrong</li>
+<li><strong>Save frequently:</strong> Click "Save Edits" to keep your progress</li>
+<li><strong>Filter:</strong> Use "Hide Reviewed Items" to focus on unfinished rows</li>
+<li><strong>External URLs:</strong> Use the External URL field for links to other manuals or sites</li>
 </ol>
-Only validated references (with checkboxes checked) will create links in the final document.
+Only cites with “Create a link” checked become links in the final document.
 </div>
 
 <div style="margin: 16px 0; padding: 12px; background: #dbeafe; border-radius: 8px; border-left: 4px solid #3b82f6;">
@@ -109,12 +110,12 @@ Hide Reviewed Items
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <input type="hidden" name="page" value="{{ page }}">
 {% if html_import %}<div class="info" style="background: #eef2ff; border-left-color: #6366f1;">
-<strong>HTML Import Options:</strong><br>
+<strong>HTML import options:</strong><br>
 <label style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
   <input type="checkbox" name="rebuild_links" id="rebuild_links" {{ 'checked' if rebuild_links }}>
-  <span>Rebuild internal links (remove existing section/chapter anchors before applying new links)</span>
+  <span>Rebuild internal links (replace existing in-page links with the choices below)</span>
 </label>
-<small style="color: #4b5563; display: block; margin-top: 6px;">When unchecked, existing internal links are preserved and shown read-only for verification.</small>
+<small style="color: #4b5563; display: block; margin-top: 6px;">When unchecked, existing in-page links stay as-is and are shown read-only for verification.</small>
 </div>{% endif %}
 <div class="references-list">
 {% for para in paragraphs %}
@@ -148,7 +149,7 @@ Hide Reviewed Items
              data-review-status="{{ ref.review_status }}"
              data-is-valid="{{ 'true' if (ref.is_valid and not ref.is_ignored) else 'false' }}">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <span style="font-size: 12px; color: #6b7280;">Reference #{{ ref.ref_id }}</span>
+                <span style="font-size: 12px; color: #6b7280;">Cite {{ loop.index }} in this paragraph</span>
                 <span style="display: inline-flex; align-items: center; gap: 6px;">
                     <span class="skip-badge" id="skip_badge_{{ ref.ref_id }}">Skipped</span>
                     <span style="font-size: 12px; font-weight: 600; color: {{ ref.review_badge_color }};">{{ ref.review_indicator }}</span>
@@ -170,12 +171,12 @@ Hide Reviewed Items
                            id="ref_ignore_{{ ref.ref_id }}"
                            value="1"
                            {{ 'checked' if ref.is_ignored }} {{ 'disabled' if ref.is_read_only }}>
-                    <span>Skip linking (not a real reference)</span>
+                    <span>Skip linking (not a chapter/section cite)</span>
                 </label>
             </div>
             <div class="ref-details">
                 <div style="margin-bottom: 8px; padding: 8px; background: #fff; border-left: 3px solid #10b981; border-radius: 4px;">
-                    <strong style="color: #065f46;">Auto-matched new:</strong><br>
+                    <strong style="color: #065f46;">Suggested heading:</strong><br>
                     <code style="background: #d1fae5; padding: 2px 6px; border-radius: 3px;">{{ ref.full_new_heading }}</code>
                 </div>
                 <div class="validation-checkbox {{ ref.validation_class }}">
@@ -185,16 +186,16 @@ Hide Reviewed Items
                                id="ref_valid_{{ ref.ref_id }}"
                                value="1"
                                {{ 'checked' if ref.checked }} {{ 'disabled' if ref.is_read_only }}>
-                        <span>This is a valid chapter/section reference</span>
+                        <span>Create a link for this cite</span>
                     </label>
                 </div>
             <div style="margin-bottom: 8px;">
-                <label for="ref_target_{{ ref.ref_id }}" style="display: block; margin-bottom: 4px; font-weight: 600;">Link target (select new heading to link to):</label>
+                <label for="ref_target_{{ ref.ref_id }}" style="display: block; margin-bottom: 4px; font-weight: 600;">Link to heading:</label>
                 <select id="ref_target_{{ ref.ref_id }}"
                         name="ref_target_{{ ref.ref_id }}"
                         {{ 'disabled' if ref.is_read_only }}
                         style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 13px;">
-                    <option value="">-- Select NEW heading to link to --</option>
+                    <option value="">— Choose a heading —</option>
                     {% for full in dropdown_headings %}
                     <option value="{{ full }}" {{ 'selected' if full == ref.selected_target }}>{{ full }}</option>
                     {% endfor %}
@@ -333,21 +334,11 @@ Hide Reviewed Items
 </div>
 </form>
 <script>
-// Debug: Show checkbox status on page load
 window.addEventListener('DOMContentLoaded', function() {
-    checkedCheckboxes.forEach(cb => {
-    });
-
+    const allCheckboxes = document.querySelectorAll('input[type="checkbox"][name^="ref_valid_"], input[type="checkbox"][name^="ref_ignore_"]');
     if (allCheckboxes.length === 0) {
-        console.warn('WARNING: No checkboxes found on page! References may not be rendering.');
+        console.warn('WARNING: No reference checkboxes found on page.');
     }
-
-    // Add change listeners to all checkboxes for debugging
-    allCheckboxes.forEach(cb => {
-        cb.addEventListener('change', function(e) {
-        });
-    });
-    // Update progress counter on page load
     updateProgressCounter();
 });
 

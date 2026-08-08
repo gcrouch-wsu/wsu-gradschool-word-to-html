@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Heading Crosswalk Review</title>
+<title>Review heading numbers</title>
 <style>
 body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; background: #f7f7f8; }
 .container { max-width: 1400px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
@@ -10,17 +10,12 @@ th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; vertical-ali
 th:nth-child(n+2), td:nth-child(n+2) { text-align: center; }
 td input[type=text] { text-align: center; }
 th { background: #f3f4f6; font-weight: 600; }
-/* Column 1 (Valid checkbox): narrow */
 td:nth-child(1), th:nth-child(1) { width: 40px; text-align: center; }
-/* Column 2 (OLD Reference): wider to show full reference */
 td:nth-child(2) { white-space: nowrap; font-family: monospace; min-width: 150px; max-width: 250px; }
 th:nth-child(2) { min-width: 150px; }
-/* Column 3 (OLD Title): allow wrapping */
 td:nth-child(3) { word-wrap: break-word; word-break: break-word; max-width: 300px; }
-/* Column 4 (NEW Reference input): wider to show full reference */
 td:nth-child(4) { min-width: 180px; max-width: 280px; }
 th:nth-child(4) { min-width: 180px; }
-/* Column 5 (NEW Title): allow wrapping */
 td:nth-child(5) { word-wrap: break-word; word-break: break-word; max-width: 300px; }
 input[type=text] { width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; box-sizing: border-box; }
 .actions { margin-top: 16px; display: flex; gap: 12px; align-items: center; }
@@ -31,14 +26,15 @@ input[type=text] { width: 100%; padding: 6px; border: 1px solid #ddd; border-rad
 </head>
 <body>
 <div class="container">
-<h1>Heading Crosswalk Review</h1>
-<p class="small">Workflow: confirm heading numbering, save, then review references before export.</p>
-<p class="small"><strong>Review and validate the automatic heading mappings:</strong></p>
+<h1>Review heading numbers</h1>
+<p class="small">Confirm how old heading numbers map to new ones, save, then review body references before export.</p>
+{% if session_retention_note %}<p class="small" style="color:#64748b;">{{ session_retention_note }}</p>{% endif %}
+<p class="small"><strong>How to use this table:</strong></p>
 <ul class="small" style="margin: 8px 0 16px 20px;">
-  <li><strong>Uncheck "Valid?"</strong> to exclude invalid rows (TOC entries, malformed references, duplicates)</li>
-  <li><strong>Edit "NEW Reference"</strong> to correct wrong conversions (e.g., "Chapter 5A.2.b" &rarr; "Chapter 5.1.2.2")</li>
-  <li><strong>Edit "NEW Title"</strong> to clean up extracted titles (remove paragraph content, fix special characters, etc.)</li>
-  <li><em>Note: Un-numbered headings appear with a blank OLD Reference so you can assign a NEW Reference.</em></li>
+  <li><strong>Uncheck "Include"</strong> to drop bad rows (TOC leftovers, duplicates, malformed numbers)</li>
+  <li><strong>Edit "New number"</strong> to fix wrong conversions (e.g., "Chapter 5A.2.b" &rarr; "Chapter 5.1.2.2")</li>
+  <li><strong>Edit "New title"</strong> to clean up extracted titles</li>
+  <li><em>Note: Un-numbered headings appear with a blank "From Word" number so you can assign a new number.</em></li>
 </ul>
 <form method="POST">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -47,7 +43,7 @@ input[type=text] { width: 100%; padding: 6px; border: 1px solid #ddd; border-rad
     <button type="button" class="btn secondary" id="select_none_crosswalk">Select none</button>
   </div>
   <table>
-    <thead><tr><th style="width:40px;">Valid?</th><th>OLD Reference</th><th>OLD Title</th><th>NEW Reference</th><th>NEW Title</th></tr></thead>
+    <thead><tr><th style="width:40px;">Include</th><th>From Word</th><th>Old title</th><th>New number</th><th>New title</th></tr></thead>
     <tbody>
     {% for row in rows %}
     <tr>

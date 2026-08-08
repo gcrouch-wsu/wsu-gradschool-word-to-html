@@ -43,11 +43,12 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
 <body>
 <div class="container">
   <h1>Table Review</h1>
-  <p class="small">Choose common table formatting rules before conversion. These settings are written into the exported CSS (after the base manual stylesheet). The preview updates as you change options.</p>
+  <p class="small">Choose common table formatting rules before conversion. These settings are written into the exported CSS. The preview updates as you change options.</p>
+  {% if session_retention_note %}<p class="small" style="color:#64748b;">{{ session_retention_note }}</p>{% endif %}
   {% if detected_cols %}<p class="small" style="margin:0 0 12px 0;"><strong>Detected:</strong> The first table in your document has <strong>{{ detected_cols }}</strong> columns (alignment defaults still use &ldquo;Automatic&rdquo; unless you choose otherwise).</p>{% endif %}
   <aside class="preview-panel" aria-label="Live table preview">
     <h2>Live preview</h2>
-    <p class="small" style="margin-top:0;">Sample table (not your document). Styling matches export; cell alignment uses the same rules as conversion.</p>
+    <p class="small" style="margin-top:0;" id="preview-caption">Uses the first table from your document when available. Styling and alignment match export.</p>
     <div id="preview-status" class="preview-status" aria-live="polite"></div>
     <div class="manual-grid" data-toc-depth="2" data-manual-type="{{ manual_type }}" data-numbering-mode="css-counters" data-theme="manual">
       <main class="manual" id="table-preview-root"></main>
@@ -59,7 +60,7 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
     {% if tables %}
     <section class="table-headers" aria-labelledby="table-headers-heading">
       <h2 id="table-headers-heading">Header rows</h2>
-      <p class="small">Word decides which row lands in <code>&lt;thead&gt;</code>, and it is not always the real header. A row marked as the header is announced by screen readers as the heading for every cell in its column, so a data row in that position is misleading. Check each table below.</p>
+      <p class="small">Word sometimes marks the wrong row as the column header. A header row is announced by screen readers for every cell in its column, so a data row in that position is misleading. Check each table below.</p>
       {% for t in tables %}
       <div class="table-card">
         <div class="table-card-head">
@@ -70,7 +71,7 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
         </div>
         {% if t.caption %}<p class="small"><em>Caption:</em> {{ t.caption }}</p>{% endif %}
         <table class="table-peek">
-          <tr><th scope="row">In <code>&lt;thead&gt;</code></th>
+          <tr><th scope="row">Marked as header</th>
             <td>{% if t.head_cells %}{{ t.head_cells|join(' | ') }}{% else %}<em>(none)</em>{% endif %}</td></tr>
           <tr><th scope="row">Next row</th>
             <td>{% if t.first_body_cells %}{{ t.first_body_cells|join(' | ') }}{% else %}<em>(none)</em>{% endif %}</td></tr>
@@ -91,10 +92,10 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
           <div>
             <label for="table_align_mode_{{ t.index }}">Alignment for this table</label>
             <select id="table_align_mode_{{ t.index }}" name="table_align_mode_{{ t.index }}">
-              <option value="auto" {{ 'selected' if t.align_mode == 'auto' }}>Automatic &mdash; centre numeric columns</option>
+              <option value="auto" {{ 'selected' if t.align_mode == 'auto' }}>Automatic &mdash; center numeric columns</option>
               <option value="auto_skip_first" {{ 'selected' if t.align_mode == 'auto_skip_first' }}>Automatic, but always left-align column 1</option>
               <option value="left_all" {{ 'selected' if t.align_mode == 'left_all' }}>Left-align everything</option>
-              <option value="center_all" {{ 'selected' if t.align_mode == 'center_all' }}>Centre everything</option>
+              <option value="center_all" {{ 'selected' if t.align_mode == 'center_all' }}>Center everything</option>
               <option value="right_all" {{ 'selected' if t.align_mode == 'right_all' }}>Right-align everything</option>
               <option value="right_numeric" {{ 'selected' if t.align_mode == 'right_numeric' }}>Right-align numeric columns</option>
             </select>
@@ -121,7 +122,7 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
       <div>
         <label for="{{ col }}">{{ label }}</label>
         <select id="{{ col }}" name="{{ col }}">
-          <option value="auto" {{ 'selected' if not theme_settings.get(col) }}>Automatic (converter)</option>
+          <option value="auto" {{ 'selected' if not theme_settings.get(col) }}>Automatic</option>
           <option value="left" {{ 'selected' if theme_settings.get(col) == 'left' }}>Left</option>
           <option value="center" {{ 'selected' if theme_settings.get(col) == 'center' }}>Center</option>
           <option value="right" {{ 'selected' if theme_settings.get(col) == 'right' }}>Right</option>
@@ -131,7 +132,7 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
     </div>
     <div class="row" style="margin-top:8px;">
       <div>
-        <label for="table_header_align">Header row (<code>&lt;thead&gt;</code>) alignment</label>
+        <label for="table_header_align">Header row alignment</label>
         <select id="table_header_align" name="table_header_align">
           <option value="auto" {{ 'selected' if not theme_settings.get('table_header_align') }}>Same as body columns</option>
           <option value="left" {{ 'selected' if theme_settings.get('table_header_align') == 'left' }}>Left</option>
@@ -140,10 +141,10 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
         </select>
       </div>
       <div>
-        <label for="table_layout_mode">Column width mode</label>
+        <label for="table_layout_mode">Column widths</label>
         <select id="table_layout_mode" name="table_layout_mode">
-          <option value="auto" {{ 'selected' if theme_settings.get('table_layout_mode') == 'auto' }}>Auto</option>
-          <option value="fixed" {{ 'selected' if theme_settings.get('table_layout_mode') == 'fixed' }}>Fixed</option>
+          <option value="auto" {{ 'selected' if theme_settings.get('table_layout_mode') == 'auto' }}>Fit to content</option>
+          <option value="fixed" {{ 'selected' if theme_settings.get('table_layout_mode') == 'fixed' }}>Equal / fixed widths</option>
         </select>
       </div>
       <div>
@@ -212,6 +213,7 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
   const styleEl = document.getElementById("table-preview-theme");
   const root = document.getElementById("table-preview-root");
   const status = document.getElementById("preview-status");
+  const caption = document.getElementById("preview-caption");
   const url = "{{ url_for('table_review_preview', session_id=session_id) }}";
   let timer;
   function payload() {
@@ -246,6 +248,11 @@ select, input[type="number"], input[type="color"] { padding: 6px 8px; border: 1p
       styleEl.textContent = j.css;
       root.innerHTML = j.table_html;
       status.textContent = "";
+      if (caption) {
+        caption.textContent = j.using_sample
+          ? "Sample table (your document had no table HTML available yet). Styling still matches export."
+          : "First table from your document. Styling and alignment match export.";
+      }
     } catch (e) {
       status.textContent = "Preview unavailable.";
     }

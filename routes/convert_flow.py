@@ -92,7 +92,11 @@ from core.styling import (
 
 logger = logging.getLogger(__name__)
 
-from routes.common import load_heading_id_map_from_request
+from routes.common import (
+    load_heading_id_map_from_request,
+    first_manual_table_html,
+    session_retention_context,
+)
 
 @app.route("/heading_review/<uuid:session_id>", methods=["GET", "POST"])
 def heading_review(session_id):
@@ -227,7 +231,7 @@ def heading_review(session_id):
         edit_data['last_updated'] = str(datetime.now())
         save_edits_data(session, edit_data)
 
-        flash(f"Heading crosswalk saved. {len(updated)} entries" + (f", {len(updated_titles)} titles edited." if updated_titles else "."))
+        flash(f"Heading map saved. {len(updated)} entries" + (f", {len(updated_titles)} titles edited." if updated_titles else "."))
         return redirect(url_for('review', session_id=session_id))
 
     # Build display list - PRIORITIZE approved_crosswalk so saved edits stay visible
@@ -375,7 +379,12 @@ def heading_review(session_id):
     if title_lookup_failures > 0:
         logger.debug(f"[heading_review]: Total NEW title lookup failures: {title_lookup_failures} (but used old_title as fallback)")
 
-    return render_template("heading_review.html", rows=template_rows)
+    return render_template(
+        "heading_review.html",
+        rows=template_rows,
+        session_id=session_id,
+        **session_retention_context(session),
+    )
 
 @app.route("/convert", methods=["POST"])
 def convert():
@@ -390,7 +399,10 @@ def convert():
 
     preserve = bool(request.form.get("preserve_numbers"))
     mapping_mode = request.form.get("mapping_mode", "map_new")
-    infer_heading_depth = bool(request.form.get("infer_heading_depth"))
+    manual_type_override = (request.form.get("manual_type") or "auto").strip().lower()
+    if manual_type_override not in ("auto", "chapter", "section", "policy"):
+        manual_type_override = "auto"
+    infer_heading_depth = request.form.get("infer_heading_depth") in ("1", "on", "true", "yes")
     strip_docx_formatting = "strip_docx_formatting" in request.form
     toc_depth = request.form.get("toc_depth", "2")  # Default to 2 if not provided
     edit_tables = "edit_tables" in request.form
@@ -431,8 +443,11 @@ def convert():
 
         # Phases 1-2: preprocess DOCX, run Pandoc, normalize HTML (shared
         # with /import_bundle via services.docx_session)
+        override = None if manual_type_override == "auto" else manual_type_override
         (heading_map, old_crosswalk, references, manual_type,
-         docx_links_by_para, normalized_html) = run_docx_prepipeline(session, style_map, sequence_map)
+         docx_links_by_para, normalized_html) = run_docx_prepipeline(
+            session, style_map, sequence_map, manual_type_override=override
+        )
 
         # Align preserve flag with mapping choice: keeping old headings implies keeping numbers
         if mapping_mode == "keep_old":
@@ -728,7 +743,11 @@ def review(session_id):
         logger.debug(f"Saved data - edits: {len(edits)} entries, validations: {len(validations)} entries ({valid_count} valid, {invalid_count} invalid), link_targets: {len(link_targets)} entries, external_urls: {len(external_urls)} entries")
         logger.debug(f"Sample validations: {dict(list(validations.items())[:5])}")
 
-        flash(f"✓ Edits saved successfully! Found {valid_count} valid references, {invalid_count} skipped references. Saved to: {edit_file.name}. Export a session bundle to share or continue on another machine.")
+        flash(
+            f"Edits saved. {valid_count} reference(s) set to link, "
+            f"{invalid_count} skipped. Export a session bundle to share or "
+            "continue on another machine."
+        )
         if rejected_external:
             unique_rejected = sorted(set(rejected_external))
             shown = ", ".join(f"“{value[:60]}”" for value in unique_rejected[:3])
@@ -1025,9 +1044,10 @@ def review(session_id):
         edit_file_name=edit_file.name,
         dropdown_headings=all_headings,
         paragraphs=paragraphs,
+        **session_retention_context(session),
     )
 
-# Sample HTML for table review live preview (aligned server-side like real conversion).
+# Sample HTML for table review live preview when the session has no real table yet.
 _TABLE_REVIEW_PREVIEW_SAMPLE = (
     '<div class="manual"><table>'
     '<thead><tr><th>Policy area</th><th>Code</th><th>Description</th></tr></thead>'
@@ -1042,7 +1062,11 @@ _TABLE_REVIEW_PREVIEW_SAMPLE = (
 
 @app.route("/table_review/<uuid:session_id>/preview", methods=["POST"])
 def table_review_preview(session_id):
-    """Return theme table CSS + sample table HTML for live preview (JSON)."""
+    """Return theme table CSS + table HTML for live preview (JSON).
+
+    Prefers the first table from this session's converted HTML; falls back to a
+    labeled sample only when none is available.
+    """
     session_id = str(session_id)
     session = SessionDir(session_id)
     session_data = load_session_data(session)
@@ -1054,8 +1078,16 @@ def table_review_preview(session_id):
         body = {}
     settings, _ = coerce_theme_settings(body, manual_type)
     css = build_table_theme_css(settings)
+
+    html_import = session_data.get("html_import", False)
+    html_path = Path(session_data.get("html_path", ""))
+    source = html_path if (html_import and html_path.exists()) else session.temp_html
+    real_table = first_manual_table_html(source)
+    using_sample = real_table is None
+    preview_src = real_table or _TABLE_REVIEW_PREVIEW_SAMPLE
+
     aligned = format_manual_tables(
-        _TABLE_REVIEW_PREVIEW_SAMPLE,
+        preview_src,
         settings.get("table_align_mode", "auto"),
         settings.get("table_col1_align"),
         settings.get("table_coln_align"),
@@ -1066,7 +1098,12 @@ def table_review_preview(session_id):
     soup = BeautifulSoup(aligned, "html.parser")
     tbl = soup.find("table")
     table_html = str(tbl) if tbl else "<table></table>"
-    return jsonify({"ok": True, "css": css, "table_html": table_html})
+    return jsonify({
+        "ok": True,
+        "css": css,
+        "table_html": table_html,
+        "using_sample": using_sample,
+    })
 
 
 @app.route("/table_review/<uuid:session_id>", methods=["GET", "POST"])
@@ -1134,6 +1171,7 @@ def table_review(session_id):
         sw_bc=sw_bc,
         sw_sc=sw_sc,
         wp_css_text=get_wp_css_text(),
+        **session_retention_context(session),
     )
 
 def _preview_cache_key(session, pipeline_config, *, html_import, pre_path, manual_type,
@@ -1358,7 +1396,8 @@ def do_convert(session_id):
                                        wordpress_js_tag=f"<script>{wp_js}</script>",
                                        theme_settings=theme_settings,
                                        has_tables=bool(meta.get("has_tables")),
-                                       theme_id=theme_id)
+                                       theme_id=theme_id,
+                                       **session_retention_context(session))
 
         # 1. Source Acquisition
         if not html_import:
@@ -1511,7 +1550,8 @@ def do_convert(session_id):
                                     wordpress_js_tag=f"<script>{wp_js}</script>",
                                     theme_settings=theme_settings,
                                     has_tables=has_tables_in_output,
-                                    theme_id=theme_id)
+                                    theme_id=theme_id,
+                                    **session_retention_context(session))
 
     except Exception as e:
         logger.exception("Conversion failed")

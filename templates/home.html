@@ -63,28 +63,53 @@
   {% endwith %}
 
   {% if show_preview %}
+    {% if session_retention_note %}
+    <p class="small" style="margin:0 0 12px 0; color:#64748b;">{{ session_retention_note }}</p>
+    {% endif %}
+    <div class="export-actions" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:8px;">
+      <span style="font-size:13px; font-weight:600; color:#334155; width:100%; margin-bottom:2px;">Recommended for WordPress</span>
+      <a href="{{ url_for('download', session_id=session_id, token=token, kind='fragment') }}" class="btn" style="background:#16a34a; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;" title="HTML body fragment to paste into a WordPress page (no full document chrome)">Download Fragment</a>
+      <a href="{{ url_for('download', session_id=session_id, token=token, kind='css') }}" class="btn" style="background:#0891b2; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;" title="Base stylesheet plus this session's colors/fonts/table theme — upload or paste into the site">Download CSS + theme</a>
+      <a href="{{ url_for('download', session_id=session_id, token=token, kind='js') }}" class="btn" style="background:#d97706; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;" title="Table of contents / navigation script for the manual">Download JS</a>
+    </div>
     <div class="export-actions" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px;">
-      <a href="{{ url_for('download', session_id=session_id, token=token, kind='standalone') }}" class="btn" style="background:#4b5563; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Download Standalone</a>
-      <a href="{{ url_for('download', session_id=session_id, token=token, kind='fragment') }}" class="btn" style="background:#16a34a; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Download Fragment</a>
-      <a href="{{ url_for('download', session_id=session_id, token=token, kind='fragment_css') }}" class="btn" style="background:#059669; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Fragment + CSS</a>
-      <a href="{{ url_for('download', session_id=session_id, token=token, kind='docx') }}" class="btn" style="background:#7c3aed; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Download DOCX</a>
-      <a href="{{ url_for('download', session_id=session_id, token=token, kind='css') }}" class="btn" style="background:#0891b2; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;" title="Base stylesheet plus this session's theme settings (colours, fonts, table theme)">Download CSS + theme</a>
-      <a href="{{ url_for('download', session_id=session_id, token=token, kind='css_base') }}" class="btn" style="background:#0e7490; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;" title="Base stylesheet only — matches a site that has never installed the theme block">Download CSS (base only)</a>
-      <a href="{{ url_for('download', session_id=session_id, token=token, kind='js') }}" class="btn" style="background:#d97706; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Download JS</a>
-      <a href="{{ url_for('download', session_id=session_id, token=token, kind='heading_map') }}" class="btn" style="background:#be185d; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Download Heading Map</a>
+      <span style="font-size:13px; font-weight:600; color:#64748b; width:100%; margin-bottom:2px;">Also available</span>
+      <a href="{{ url_for('download', session_id=session_id, token=token, kind='fragment_css') }}" class="btn" style="background:#059669; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;" title="Fragment with CSS inlined — handy for a quick self-contained paste">Fragment + CSS</a>
+      <a href="{{ url_for('download', session_id=session_id, token=token, kind='standalone') }}" class="btn" style="background:#4b5563; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;" title="Full HTML page for offline review (not the usual WordPress paste)">Download Standalone</a>
+      <a href="{{ url_for('download', session_id=session_id, token=token, kind='docx') }}" class="btn" style="background:#7c3aed; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;" title="Numbered Word copy produced during conversion">Download DOCX</a>
+      <a href="{{ url_for('download', session_id=session_id, token=token, kind='css_base') }}" class="btn" style="background:#0e7490; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;" title="Base stylesheet only — for sites that already have theme colors installed">Download CSS (base only)</a>
+      <a href="{{ url_for('download', session_id=session_id, token=token, kind='heading_map') }}" class="btn" style="background:#be185d; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;" title="Permalink map — reuse on the next conversion so existing section links keep working">Download Heading Map</a>
       {% if has_tables %}
-      {# Always reachable from here. Table Review otherwise only appears mid-flow
-         when "Edit tables" was ticked at upload, so an imported session — whose
-         manifest usually carries edit_tables false — could never reach the
-         per-table header, alignment and placement controls. #}
       <a href="{{ url_for('table_review', session_id=session_id) }}" class="btn" style="background:#334155; text-decoration:none; padding:12px 24px; color:white; border-radius:6px; font-weight:600; display:inline-block;">Table settings&hellip;</a>
       {% endif %}
       <form action="{{ url_for('export_session', session_id=session_id) }}" method="post" style="display:inline;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" style="background:#0284c7">Export Session Bundle (.zip)</button>
+        <button type="submit" style="background:#0284c7" title="Zip of Word file + your review choices for later or another machine">Export Session Bundle (.zip)</button>
       </form>
       <a href="{{ url_for('index') }}" style="margin-left:auto; align-self:center;">Start Over</a>
     </div>
+    <details class="option-box" style="margin-bottom:20px;">
+      <summary style="font-weight:600; cursor:pointer;">Document colors &amp; fonts (optional)</summary>
+      <form action="{{ url_for('update_theme') }}" method="post" style="margin-top:12px; display:grid; gap:12px; max-width:520px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="session_id" value="{{ session_id }}">
+        <label>Primary color <input type="color" name="primary_color" value="{{ theme_settings.get('primary_color', '#8d0a0a') }}"></label>
+        <label>Link color <input type="color" name="link_color" value="{{ theme_settings.get('link_color', '#8d0a0a') }}"></label>
+        <label>Base font size (px)
+          <input type="number" name="base_font_size" min="12" max="24" step="1" value="{{ theme_settings.get('base_font_size', 16) }}" style="width:80px;">
+        </label>
+        <label>Line height
+          <input type="number" name="line_height" min="1.2" max="2.2" step="0.1" value="{{ theme_settings.get('line_height', 1.6) }}" style="width:80px;">
+        </label>
+        <label>Font family
+          <input type="text" name="font_family" value="{{ theme_settings.get('font_family', 'system-ui, -apple-system, sans-serif') }}" style="width:100%;">
+        </label>
+        <div style="display:flex; gap:10px;">
+          <button type="submit">Apply styling</button>
+          <button type="submit" name="reset_theme" value="1" style="background:#64748b;">Reset to defaults</button>
+        </div>
+      </form>
+    </details>
     <div class="preview-container">
       {{ body_html|safe }}
     </div>
@@ -121,17 +146,48 @@
         </div>
 
         <div class="section-title">Conversion options</div>
+
+        <div class="option-box">
+          <p class="small" style="margin:0 0 10px 0; font-weight:600; color:#334155;">Which options should I pick?</p>
+          <ul class="small" style="margin:0; padding-left:1.2em; color:#555;">
+            <li><strong>Already uses decimal Chapter/Section numbers in Word</strong> (e.g. Chapter 4.2) and you want those kept → choose <em>Keep the Word file’s heading numbers</em> below. You can leave “Show numbers in the heading text” unticked; this mode keeps numbers either way.</li>
+            <li><strong>Being renumbered</strong> (old letter/Roman scheme → new decimals) → choose <em>Map body cites to new heading numbers</em> (default).</li>
+            <li><strong>Chapter vs Section labels</strong> → usually leave on Auto. Override only if Auto gets it wrong (headings should say Chapter… or Section…).</li>
+          </ul>
+        </div>
+
+        <div class="form-group">
+          <label for="manual_type">Top-level label (Chapter or Section)</label>
+          <select id="manual_type" name="manual_type" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; width: min(100%, 360px);">
+            <option value="auto" selected>Auto — detect from headings in the Word file</option>
+            <option value="chapter">Chapter (e.g. “Chapter 1 - …”)</option>
+            <option value="section">Section (e.g. “Section 1 - …”)</option>
+          </select>
+          <p class="small" style="margin-top:6px;">Controls the word on numbered headings and cross-references. Auto looks for Chapter/Section in the document — not cover-page keywords.</p>
+        </div>
+
+        <div class="form-group">
+          <label for="mapping_mode">How should body references match headings?</label>
+          <select id="mapping_mode" name="mapping_mode" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; width: min(100%, 420px);">
+            <option value="map_new" selected>Map body cites to new heading numbers (use when renumbering)</option>
+            <option value="keep_old">Keep the Word file’s heading numbers (already decimal / no remap)</option>
+          </select>
+          <p class="small" style="margin-top:6px;" id="mapping_mode_help">“Map…” runs a heading-number review, then links old cites to new numbers. “Keep…” skips that review and matches cites to the numbers already in the Word file.</p>
+        </div>
+
+        <div class="checkbox" id="preserve_numbers_row">
+          <input id="preserve_numbers" name="preserve_numbers" type="checkbox">
+          <label for="preserve_numbers">Show numbers in the heading text (instead of letting the site CSS add them)</label>
+        </div>
+        <p class="small" style="margin-top:-8px; margin-left:24px; color:#666; margin-bottom:12px;" id="preserve_numbers_help">Only applies when mapping to new numbers. With “Keep the Word file’s heading numbers,” originals are always kept — this checkbox is ignored in that mode.</p>
+        <div id="preserve_map_warn" class="option-box" style="display:none; background:#fff7ed; border-color:#fdba74;">
+          <p class="small" style="margin:0; color:#9a3412;"><strong>Note:</strong> “Show numbers in the heading text” with “Map body cites to new heading numbers” keeps the <em>old</em> numbers in the HTML while references are remapped to <em>new</em> numbers. That is unusual — leave this unticked unless you know you need it.</p>
+        </div>
         
         <div class="checkbox">
           <input id="edit_tables" name="edit_tables" type="checkbox">
           <label for="edit_tables">Open table review before export (if tables are detected)</label>
         </div>
-        
-        <div class="checkbox">
-          <input id="preserve_numbers" name="preserve_numbers" type="checkbox">
-          <label for="preserve_numbers">Keep heading numbers in text (e.g., "I.A. Section Title" instead of just "Section Title")</label>
-        </div>
-        <p class="small" style="margin-top:-8px; margin-left:24px; color:#666; margin-bottom:12px;">By default, the converter strips numbers like "Chapter 1" because the site CSS adds them automatically.</p>
         
         <div class="form-group">
           <label for="toc_depth">Table of Contents Depth:</label>
@@ -144,13 +200,19 @@
           </select>
         </div>
 
-        <div class="form-group">
-          <label for="mapping_mode">Heading mapping mode:</label>
-          <select id="mapping_mode" name="mapping_mode" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; width: 260px;">
-            <option value="map_new" selected>Map to new numeric headings (recommended)</option>
-            <option value="keep_old">Keep original headings/numbering</option>
-          </select>
-        </div>
+        <details style="margin: 16px 0; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
+          <summary style="font-weight:600; cursor:pointer;">Advanced (usually leave off)</summary>
+          <div class="checkbox" style="margin-top:12px;">
+            <input id="infer_heading_depth" name="infer_heading_depth" type="checkbox" value="1">
+            <label for="infer_heading_depth">Infer heading levels from Word numbering styles (map-to-new only)</label>
+          </div>
+          <p class="small" style="margin-left:24px;">Uses the document’s list/numbering definitions when Heading styles are missing or wrong. Leave off unless a conversion mis-levels headings.</p>
+          <div class="checkbox">
+            <input id="strip_docx_formatting" name="strip_docx_formatting" type="checkbox">
+            <label for="strip_docx_formatting">Strip direct Word formatting during conversion</label>
+          </div>
+          <p class="small" style="margin-left:24px; margin-bottom:0;">Removes more local character/paragraph formatting so the site stylesheet has a cleaner slate. Can change how bold/italic look.</p>
+        </details>
 
         <div style="margin-top: 30px;">
           <button type="submit">Continue with Word file</button>
@@ -160,7 +222,7 @@
       <hr class="path-divider">
 
       <p class="path-title">2. Start from a saved web page (HTML)</p>
-      <p class="path-lead">Use this path when you <strong>do not</strong> have the Word file—only an <strong>.html</strong> page you already exported (for example from WordPress or from this tool). It replaces starting from Word for that run: you will still get review steps and downloads afterward.</p>
+      <p class="path-lead">Use when you <strong>do not</strong> have the Word file—only an <strong>.html</strong> export. Skips the heading-number remap step and goes to reference review.</p>
 
       <form action="/import_html" method="post" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -192,8 +254,8 @@
 
     <div class="section-title">Import & Restore</div>
     <div class="card" style="max-width:720px;">
-      <h3 style="margin-top:0">Session bundle (.zip)</h3>
-      <p class="small">Restore a full saved session you exported earlier—not the same as “start from Word” or “start from HTML” above.</p>
+      <h3 style="margin-top:0">3. Restore a session bundle (.zip)</h3>
+      <p class="small">Hand off or resume work: restore a full saved session you exported earlier—not the same as starting from Word or HTML above.</p>
       <form action="/import_bundle" method="post" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label for="bundle_zip">Session bundle</label>
@@ -207,5 +269,33 @@
       </form>
     </div>
   {% endif %}
+  <script>
+    (function () {
+      var mode = document.getElementById('mapping_mode');
+      var preserve = document.getElementById('preserve_numbers');
+      var help = document.getElementById('preserve_numbers_help');
+      var warn = document.getElementById('preserve_map_warn');
+      if (!mode || !preserve) return;
+      function sync() {
+        var keepOld = mode.value === 'keep_old';
+        preserve.disabled = keepOld;
+        if (keepOld) {
+          preserve.checked = false;
+          if (help) {
+            help.textContent = 'Not used in this mode: the Word file’s heading numbers are always kept, and the heading-number review step is skipped.';
+          }
+          if (warn) warn.style.display = 'none';
+        } else {
+          if (help) {
+            help.textContent = 'When unchecked (default), numbers like “Chapter 1” are stripped from heading text because the site CSS adds them. Tick this if you need the literal numbers left in the HTML.';
+          }
+          if (warn) warn.style.display = preserve.checked ? 'block' : 'none';
+        }
+      }
+      mode.addEventListener('change', sync);
+      preserve.addEventListener('change', sync);
+      sync();
+    })();
+  </script>
 </body>
 </html>

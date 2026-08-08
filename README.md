@@ -10,6 +10,7 @@ For the authoritative description of the architecture, module layout, security m
 
 - **DOCX to HTML conversion** via Pandoc with custom post-processing pipeline
 - **WordPress-ready output** — generates HTML fragments, CSS, and JS for WordPress deployment
+- **Chapter vs section manuals** — detected from heading labels (with upload override); degree acronyms like `D.V.M.` are excluded from reference review
 - **Permalink stability** — heading map JSON preserves anchor IDs across editing cycles, so WordPress URLs survive document revisions
 - **WCAG 2.1 AA accessible** — skip navigation, ARIA landmarks, table scope attributes, keyboard-navigable TOC; the accessible **manual grid shell** (skip link, `nav`, search, `main`) is built in **one place** — `core/html_processor.py` → **`build_manual_grid_block`** (server TOC in preview when applicable; downloads use an empty TOC placeholder filled by **`wordpress.js`**)
 - **Intended round-trip editing workflow** — exports a clean DOCX for the next Word editing cycle and supports heading-map-based permalink continuity; known limitations are handled through structured review steps in the app
@@ -94,7 +95,7 @@ This companion tool is local-only in the current project scope. See `README_conf
 ### First-Time Conversion (no heading map)
 
 1. Upload your DOCX file
-2. Configure settings: heading mapping mode (map to new numeric headings, or keep original), TOC depth, and whether to keep heading numbers in text. (Manual type — chapter vs. section — is detected automatically from the document.)
+2. Configure settings: heading mapping mode (map to new numeric headings, or keep Word heading numbers), TOC depth, and whether to show numbers in heading text. Manual type (chapter vs section) is detected from Chapter/Section headings and can be overridden on the upload form.
 3. Optionally check "Edit tables" to review table formatting, header rows, alignment and placement
 4. Click Upload and process through the review screens (headings, references, tables)
 5. Click "Proceed with Conversion"

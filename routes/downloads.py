@@ -197,7 +197,7 @@ def export_session(session_id):
     # Use standardized edit path
     edit_file = session.edits_json
     if not src_path.exists() or not edit_file.exists():
-        flash("Missing source DOCX or edits file; cannot export session.")
+        flash("Missing source document or saved review edits; cannot export session.")
         return redirect(url_for("review", session_id=session_id))
 
     bundle_name = f"{Path(filename).stem}_{session_id[:8]}_session.zip"

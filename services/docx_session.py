@@ -27,7 +27,12 @@ from config import SessionDir
 logger = logging.getLogger(__name__)
 
 
-def run_docx_prepipeline(session: SessionDir, style_map: dict, sequence_map: dict):
+def run_docx_prepipeline(
+    session: SessionDir,
+    style_map: dict,
+    sequence_map: dict,
+    manual_type_override: str | None = None,
+):
     """Phases 1-2: preprocess the uploaded DOCX, convert with Pandoc, and
     normalize the raw HTML up to (but not including) heading-number handling,
     which differs per caller.
@@ -36,7 +41,11 @@ def run_docx_prepipeline(session: SessionDir, style_map: dict, sequence_map: dic
     docx_links_by_para, normalized_html).
     """
     heading_map, old_crosswalk, references, manual_type = preprocess_docx(
-        session.source_docx, session.pre_docx, style_map, sequence_map
+        session.source_docx,
+        session.pre_docx,
+        style_map,
+        sequence_map,
+        manual_type_override=manual_type_override,
     )
     docx_links_by_para = extract_docx_hyperlinks(Document(session.source_docx))
     logger.info(f"Extracted {len(references)} OLD references from DOCX")

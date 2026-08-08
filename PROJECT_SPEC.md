@@ -84,7 +84,8 @@ routes/                   HTTP layer. Plain @app.route registration (no
                             /table_review/.../preview, /convert/<id> (do_convert)
   downloads.py              /download/..., /update_theme, /export/<id>
   imports.py                /import_html, /import_bundle
-  common.py                 Shared request parsing (heading-map upload).
+  common.py                 Shared request helpers: heading-map upload,
+                            session-retention copy, first-table HTML for preview.
 
 services/                 Reusable non-HTTP logic.
   session_state.py          load/save session.json and edits.json.
@@ -166,14 +167,20 @@ authentication is enabled (§8), every endpoint except `/login`, `/logout`,
 1. **Upload** (`convert`): save the DOCX, create the session, run the shared
    pre-pipeline (`services/docx_session.run_docx_prepipeline`): preprocess DOCX
    → Pandoc DOCX→HTML → normalize whitespace/images/lists → strip TOC sections.
-2. **Heading numbering**: optionally infer heading depth from a style map; strip
-   typed heading numbers unless "keep numbers" is set; apply CSS-counter
-   numbering.
+   Manual type is detected from Chapter/Section heading labels in the DOCX
+   (not cover-page keywords), and may be overridden on the upload form
+   (`auto` / `chapter` / `section`). Degree-style dotted acronyms (`D.V.M.`,
+   etc.) are filtered out of the reference list at extraction time.
+2. **Heading numbering**: optionally infer heading depth from a style map
+   (advanced option); strip typed heading numbers unless "show numbers in
+   heading text" is set; apply CSS-counter numbering. In `keep_old` mode the
+   preserve flag is forced on and the heading-number review step is skipped.
 3. **Scrape + match** (`scrape_new_structure`): assign heading IDs (honoring any
    uploaded stable map), scrape the new heading structure, then either
    auto-match old→new references (`map_new` mode) or build an identity crosswalk
    (`keep_old` mode).
-4. **Review steps**: heading crosswalk → references → (optional) table review.
+4. **Review steps**: heading number map → body references → (optional) table
+   review.
    Table review is **per table**, because the right answer depends on the table:
    - **header row** — `auto` (default), `first_row`, `title_row`, `none`
      (`TABLE_HEADER_MODES`, stored in `theme_settings["table_headers"]`)
@@ -189,10 +196,13 @@ authentication is enabled (§8), every endpoint except `/login`, `/logout`,
    reachable mid-flow when "Edit tables" is set, and from the preview page
    whenever the converted document contains tables — an imported bundle usually
    carries `edit_tables: false`, which previously put these controls out of
-   reach exactly when restoring someone else's session.
+   reach exactly when restoring someone else's session. The live table preview
+   prefers the first table from the session HTML (sample only as fallback).
 5. **Convert** (`do_convert`): run the unified single-pass BeautifulSoup
    pipeline (`process_html_pipeline`), build the accessible grid block, write the
-   export artifacts, regenerate the DOCX, and render the preview.
+   export artifacts, regenerate the DOCX, and render the preview. Preview
+   downloads are grouped as WordPress-recommended vs additional artifacts;
+   optional document colors/fonts post to `/update_theme`.
 
 ### HTML import (`/import_html`)
 
@@ -589,13 +599,23 @@ version matches `PANDOC_PINNED_VERSION` (no "older than pinned" warning);
   an optional `reference_doc` parameter, but no app flow passes one.
 - **Some WordPress theme list-marker behavior is corrected in `wordpress.js`
   after load** (`forceListStyles`), which can cause brief visible flicker.
-- **`manual_type` has three detected values, not two.** `preprocess_docx` emits
-  `"policy"` for any document whose first 20 paragraphs mention policies or
-  procedures — the Faculty Manual and GSPP both match. Policy manuals label
-  their top level "Section N", so it resolves like `"section"`. Never branch on
-  `manual_type` directly: use `core/permalinks.manual_prefix()` /
-  `is_section_style()` / `normalize_manual_type()`. Five call sites once decided
-  this independently and disagreed (§19).
+- **`manual_type` is chapter vs section for rendering.** Detection prefers
+  explicit `Chapter` / `Section` heading labels in the DOCX
+  (`detect_manual_type_from_docx`). Cover-page keywords such as POLICY /
+  PROCEDURE must **not** flip a chapter manual (e.g. GSPP) to section style.
+  Upload may override with `auto` / `chapter` / `section`. The alias `"policy"`
+  is still accepted (older sessions / override) and resolves like `"section"`.
+  Never branch on `manual_type` directly: use `core/permalinks.manual_prefix()` /
+  `is_section_style()` / `normalize_manual_type()`. Grid attributes emit the
+  normalized value; CSS also matches `[data-manual-type="policy"]` so
+  already-published pages keep Section numbering.
+- **Level-1 crosswalk keys match CSS counters.** For section-style manuals,
+  `build_numbering_crosswalk` emits decimal `Section N` (not Roman), agreeing
+  with `apply_css_counter_numbering`.
+- **`guess_heading_level` supports decimal manuals.** Including `Section \d`
+  H1s; bare `1.1` → level 2 and `1.1.1` → level 3 when styles are missing.
+- **Degree acronyms are not references.** `is_non_reference_token` filters
+  `D.V.M.`-style hits at DOCX and HTML extraction so they never enter review.
 - **Do not treat `(` or `[` as reference-label continuations.** The guard that
   stops "Section II.F" matching inside "Section II.F.6" covers a dot and the dash
   family only. Adding parentheses looks right — it would stop "Section II.F(1)"
@@ -1189,10 +1209,25 @@ piece of hard-won context goes when the work is not finished, so the next person
 — or the next review — starts from here instead of rediscovering it. Sections
 17–20 are historical and closed; this one is meant to be edited.*
 
+### Closed this cycle (2026-08-08) — do not re-open as “unknown”
+
+A build queue from the GSPP edit cycle and UI pass was implemented and the
+scratch notes (`build_list.md`, `must_fix.md`) removed. Recorded here so they
+are not rediscovered as open defects:
+
+- Manual type from headings + upload override; no POLICY/PROCEDURE keyword flip.
+- Degree-acronym denylist at reference extraction.
+- Crosswalk L1 decimal parity with CSS; decimal-aware `guess_heading_level`.
+- Landing / review / download / table-preview clarity; mapping vs preserve UX;
+  advanced options exposed; theme form on preview; session-retention notes;
+  progress-counter fix; plain-language flash messages.
+- **Not done (deferred):** in-app user management — accounts remain env-only
+  (`AUTH_OWNER_*` / `AUTH_USERS`); see Architecture below.
+
 ### Open work, in the order it is worth doing
 
 1. **A golden regression suite over real content.** The largest undocumented
-   risk in the project, and both reviewers independently landed on it. 319 tests
+   risk in the project, and both reviewers independently landed on it. Tests
    run almost entirely against a small synthetic DOCX generated by python-docx,
    while every defect that reached the published page was found by looking at
    the real manual. The obstacle is real: the input is a confidential policy
@@ -1221,10 +1256,10 @@ piece of hard-won context goes when the work is not finished, so the next person
 ### Architecture, deferred deliberately
 
 Durable session storage, per-session locking, an audit history of who changed
-what, and mandatory auth in deployed environments. All four follow from the same
-assumption — one operator, sessions in temp, trust inside the process — recorded
-in §5 and §16. They become necessary together, when that assumption stops
-holding, not one at a time.
+what, in-app account administration, and mandatory auth in deployed
+environments. These follow from the same assumption — small trusted team,
+sessions in temp, trust inside the process — recorded in §5 and §16. They become
+necessary together when that assumption stops holding, not one at a time.
 
 ### What this codebase has learned about verifying itself
 

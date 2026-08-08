@@ -17,6 +17,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 from .permalinks import normalize_heading_ref, is_section_style
+from .reference_linking import is_non_reference_token
 from utils.helpers import (
     roman_to_int, 
     _int_to_roman, 
@@ -91,11 +92,13 @@ def guess_heading_level(text: str) -> int:
     # Patterns must be followed by whitespace and actual text, or be standalone short phrases
     patterns = [
         (r"^Section\s+[IVXLCDM]+(?:(?:\s*[:\-–—]\s*)|\s+|\.\s+)\w", 1),
+        (r"^Section\s+\d+(?:(?:\s*[:\-–—]\s*)|\s+|\.\s+)\w", 1),
         (r"^Chapter\s+(?:One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|Eleven|Twelve|\d+|[IVXLCDM]+)(?:(?:\s*[:\-–—]\s*)|\s+|\.\s+)\w", 1),
         (r"^[IVXLCDM]+\.[A-Z]\.\s+\w", 2),
         (r"^[IVXLCDM]+\.[A-Z]\.\d+(\.\d+){0,2}\s+\w", 3),
-        (r"^\d+\.\d+\.\d+\s+\w", 4),
-        (r"^\d+\.\d+\s+\w", 3),
+        # Decimal manuals: 1.1 → H2, 1.1.1 → H3 (was off-by-one / Roman-era quirky)
+        (r"^\d+\.\d+\.\d+(?:\.\d+)*\s+\w", 3),
+        (r"^\d+\.\d+\s+\w", 2),
         (r"^[A-Z]\.\s+\w", 3),
     ]
     
@@ -771,12 +774,9 @@ def build_numbering_crosswalk(doc: Document, manual_type: str = "chapter") -> di
                     if level == 1:
                         chapter_counter += 1
                         section_counter = subsection_counter = subsubsection_counter = subsubsubsection_counter = 0
-                        if is_section_style(manual_type):
-                            roman_numerals = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX']
-                            chapter_str = roman_numerals[chapter_counter] if chapter_counter < len(roman_numerals) else str(chapter_counter)
-                            new_numbering = f"Section {chapter_str}"
-                        else:
-                            new_numbering = f"Chapter {chapter_counter}"
+                        # Match apply_css_counter_numbering: decimal "Section N" / "Chapter N"
+                        pref = "Section" if is_section_style(manual_type) else "Chapter"
+                        new_numbering = f"{pref} {chapter_counter}"
                     elif level == 2:
                         section_counter += 1
                         subsection_counter = subsubsection_counter = subsubsubsection_counter = 0
@@ -870,6 +870,8 @@ def extract_heading_structure_and_references(doc: Document) -> tuple[dict, list]
         ref_matches = reference_pattern.finditer(text)
         for ref_match in ref_matches:
             ref_text = ref_match.group(0)
+            if is_non_reference_token(ref_text):
+                continue
             start_pos = ref_match.start()
             end_pos = ref_match.end()
             if start_pos == 0:
@@ -1282,21 +1284,58 @@ def build_reference_doc_from_config(config: dict, out_path: Path) -> None:
 
 # --- Main Entry Point ---
 
-def preprocess_docx(input_path: Path, output_path: Path, style_map: dict | None = None, sequence_map: dict | None = None) -> tuple:
+def detect_manual_type_from_docx(doc: Document) -> str:
+    """Infer chapter vs section from heading text, not cover-page keywords.
+
+    Prefers explicit ``Chapter`` / ``Section`` labels. Defaults to ``chapter``.
+    """
+    chapter_hits = 0
+    section_hits = 0
+    for p in doc.paragraphs:
+        text = (p.text or "").strip()
+        if not text:
+            continue
+        m = re.match(r"^(Chapter|Section)\s+", text, re.IGNORECASE)
+        if not m:
+            continue
+        lvl = get_heading_level(p) or guess_heading_level(text)
+        # Styled/outline H1, guessed H1, or a short title-like Chapter/Section line
+        if not (lvl == 1 or len(text) <= 120):
+            continue
+        if m.group(1).lower() == "chapter":
+            chapter_hits += 1
+        else:
+            section_hits += 1
+    if chapter_hits or section_hits:
+        return "section" if section_hits > chapter_hits else "chapter"
+    return "chapter"
+
+
+def preprocess_docx(
+    input_path: Path,
+    output_path: Path,
+    style_map: dict | None = None,
+    sequence_map: dict | None = None,
+    manual_type_override: str | None = None,
+) -> tuple:
     """
     Clean and prepare the source DOCX for Pandoc conversion.
     This is the main entry point for DOCX-to-DOCX structural normalization.
+
+    ``manual_type_override`` may be ``chapter``, ``section``, or ``policy``
+    (policy collapses to section-style). ``auto`` / empty / None → detect.
     """
     doc = Document(input_path)
-    
-    # 1. Detect Manual Type
-    manual_type = "chapter"
-    for para in doc.paragraphs[:20]:
-        t = para.text.upper()
-        if "POLICY" in t or "PROCEDURE" in t:
-            manual_type = "policy"
-            break
-    logger.info(f"DOCX: Detected manual type: {manual_type}")
+
+    # 1. Detect Manual Type (H1 Chapter/Section), optional user override
+    detected = detect_manual_type_from_docx(doc)
+    override = (manual_type_override or "").strip().lower()
+    if override in ("chapter", "section", "policy"):
+        manual_type = override
+        logger.info(f"DOCX: Manual type override={manual_type} (detected={detected})")
+    else:
+        manual_type = detected
+        logger.info(f"DOCX: Detected manual type: {manual_type}")
 
     # 2. Structural normalization
     promote_headings(doc)

@@ -10,6 +10,52 @@ _REF_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+# Degree / credential acronyms that match the bare dotted-ref pattern (e.g. D.V.M.)
+# but are never internal manual cross-references.
+_DEGREE_ACRONYM_RE = re.compile(
+    r"^(?:"
+    r"D\.?V\.?M|"
+    r"D\.?N\.?P|"
+    r"D\.?M\.?D|"
+    r"Ed\.?D|"
+    r"Ph\.?D|"
+    r"M\.?S\.?N|"
+    r"M\.?P\.?H|"
+    r"M\.?B\.?A|"
+    r"M\.?Ed|"
+    r"M\.?S|"
+    r"M\.?A|"
+    r"B\.?S|"
+    r"B\.?A|"
+    r"B\.?S\.?N|"
+    r"LL\.?M|"
+    r"J\.?D|"
+    r"O\.?D|"
+    r"D\.?D\.?S|"
+    r"Psy\.?D"
+    r")\.?$",
+    re.IGNORECASE,
+)
+# Bare letter-only dotted tokens with no digits (e.g. D.V.M., A.B.C.) — not section numbers.
+_BARE_LETTER_DOTTED_RE = re.compile(
+    r"^[A-Za-z]{1,4}(?:\.[A-Za-z]{1,4}){1,4}\.?$"
+)
+
+
+def is_non_reference_token(ref: str) -> bool:
+    """True when a regex hit is a degree/credential acronym, not a manual cite."""
+    s = (ref or "").strip()
+    if not s:
+        return True
+    if re.match(r"^(?:Chapter|Section)\s+", s, re.IGNORECASE):
+        return False
+    if _DEGREE_ACRONYM_RE.match(s):
+        return True
+    if not re.search(r"\d", s) and _BARE_LETTER_DOTTED_RE.match(s):
+        return True
+    return False
+
+
 def _normalize_spaces(s: str) -> str:
     return re.sub(r'\s+', ' ', s).strip()
 
@@ -49,6 +95,8 @@ def extract_references_from_html(html: str) -> list:
 
         for match in _REF_PATTERN.finditer(full_text):
             old_ref = match.group(0)
+            if is_non_reference_token(old_ref):
+                continue
             start_pos = match.start()
             end_pos = match.end()
             is_linked = False

@@ -197,6 +197,8 @@ def _bundle_import_post_pandoc_pipeline(normalized_html: str, manifest: dict, ma
 def import_bundle():
     """Import a session bundle zip and copy contents into isolated session workspace"""
     f = request.files.get("bundle")
+    # Internal/test escape hatch only — not exposed in the UI (skipping review
+    # drops the human validation step). Keep for automated bundle-import tests.
     skip_review = 'skip_review' in request.form
     if not f or not f.filename.lower().endswith(".zip"):
         flash("Please upload a .zip session bundle.")

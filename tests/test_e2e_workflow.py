@@ -111,7 +111,7 @@ def test_review_page_renders(client_nocsrf, fixture_docx_bytes):
         r = client_nocsrf.get(f"/review/{sid}")
         assert r.status_code == 200
         body = r.get_data(as_text=True)
-        assert "Review Crosswalk and References" in body
+        assert "Review body references" in body
         assert 'name="csrf_token"' in body
         assert "reference-review-item" in body  # at least one reference rendered
     finally:
