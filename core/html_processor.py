@@ -122,8 +122,9 @@ def sanitize_manual_html_fragment(html: str) -> str:
                 rel = [str(rel)]
             if 'stylesheet' in [r.lower() for r in rel]:
                 link.decompose()
-        return str(soup)
-    return bleach.clean(
+        _unwrap_underlines_inside_links(soup)
+        return _fragment_contents(soup)
+    cleaned = bleach.clean(
         html,
         tags=sorted(_BLEACH_TAGS),
         attributes=_BLEACH_ATTRS,
@@ -131,6 +132,23 @@ def sanitize_manual_html_fragment(html: str) -> str:
         strip=True,
         css_sanitizer=_CSS_SANITIZER,
     )
+    soup = BeautifulSoup(cleaned, _HTML_PARSER)
+    _unwrap_underlines_inside_links(soup)
+    return _fragment_contents(soup)
+
+
+def _fragment_contents(soup: BeautifulSoup) -> str:
+    """Serialize as an HTML fragment, removing parser-added html/body wrappers."""
+    body = soup.find('body')
+    if body is not None:
+        return body.decode_contents()
+    return ''.join(str(child) for child in soup.contents)
+
+
+def _unwrap_underlines_inside_links(soup: BeautifulSoup) -> None:
+    for anchor in soup.find_all('a'):
+        for underline in anchor.find_all('u'):
+            underline.unwrap()
 
 
 # comprehensive prefix matcher (on normalized text)
@@ -2091,9 +2109,11 @@ def build_manual_grid_block(
 
     offset_attr = f' data-heading-offset="{heading_offset}"' if heading_offset else ""
     theme_attr = f' data-theme="{sanitize_theme_id(theme_id, "manual")}"'
+    body_html = _fragment_contents(BeautifulSoup(body_html or '', _HTML_PARSER)).strip()
+    toc_html = _fragment_contents(BeautifulSoup(toc_html or '', _HTML_PARSER)).strip()
     toc_block = (
-        f"    {toc_html.strip()}\n"
-        if (toc_html and toc_html.strip())
+        f"    {toc_html}\n"
+        if toc_html
         else '    <ul aria-labelledby="toc-heading" aria-live="polite"></ul>\n'
     )
     return (
