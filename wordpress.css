@@ -1030,6 +1030,10 @@ div.manual-grid nav.manual-toc {
 	border-bottom: 1px solid #A60F2D !important;
 }
 
+.manual a u {
+	text-decoration: none !important;
+}
+
 .manual a:hover {
 	color: #8A0D26 !important;
 	border-bottom-color: #8A0D26 !important;
