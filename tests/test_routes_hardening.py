@@ -284,6 +284,82 @@ def test_review_page_filters_unsafe_docx_link_hrefs(client_nocsrf):
         shutil.rmtree(session.root, ignore_errors=True)
 
 
+def test_review_page_renders_all_reference_paragraphs_without_pagination(client_nocsrf):
+    """Reference review should be one form, even when many paragraphs have refs."""
+    from bs4 import BeautifulSoup
+
+    sid = str(uuid.uuid4())
+    session = SessionDir(sid, create=True)
+    try:
+        references = [
+            [idx, f"See Chapter {idx}.A here.", f"Chapter {idx}.A", 4, 15, ""]
+            for idx in range(70)
+        ]
+        new_headings = {
+            f"Chapter {idx}.A": {
+                "full": f"Chapter {idx}.A - Heading {idx}",
+                "id": f"chapter-{idx}-a",
+            }
+            for idx in range(70)
+        }
+        session.session_json.write_text(json.dumps({
+            "references": references,
+            "new_headings": new_headings,
+            "auto_crosswalk": {ref[2]: ref[2] for ref in references},
+            "approved_crosswalk": {},
+            "manual_type": "chapter",
+            "filename": "x.docx",
+            "mapping_mode": "keep_old",
+            "html_import": False,
+        }), encoding="utf-8")
+        body = client_nocsrf.get(f"/review/{sid}").get_data(as_text=True)
+        soup = BeautifulSoup(body, "html.parser")
+        assert len(soup.select(".reference-review-item")) == 70
+        assert "All reference paragraphs shown (70 paragraphs)" in body
+        assert soup.find("button", attrs={"name": "next_page"}) is None
+        assert soup.find("button", attrs={"name": "prev_page"}) is None
+    finally:
+        shutil.rmtree(session.root, ignore_errors=True)
+
+
+def test_review_page_filters_include_status_categories(client_nocsrf):
+    """Auto-valid rows still need to be visible through Not yet reviewed."""
+    from bs4 import BeautifulSoup
+
+    sid = str(uuid.uuid4())
+    session = SessionDir(sid, create=True)
+    try:
+        session.session_json.write_text(json.dumps({
+            "references": [[0, "See Chapter 1.A here.", "Chapter 1.A", 4, 15, ""]],
+            "new_headings": {
+                "Chapter 1.A": {
+                    "full": "Chapter 1.A - Overview",
+                    "id": "chapter-1-a",
+                },
+            },
+            "auto_crosswalk": {"Chapter 1.A": "Chapter 1.A"},
+            "approved_crosswalk": {},
+            "manual_type": "chapter",
+            "filename": "x.docx",
+            "mapping_mode": "keep_old",
+            "html_import": False,
+        }), encoding="utf-8")
+        body = client_nocsrf.get(f"/review/{sid}").get_data(as_text=True)
+        soup = BeautifulSoup(body, "html.parser")
+        filters = {
+            button.get("data-reference-filter")
+            for button in soup.select("[data-reference-filter]")
+        }
+        assert {"all", "valid", "skipped", "auto", "unreviewed"} <= filters
+        assert "Hide Reviewed Items" not in body
+        item = soup.select_one(".reference-review-item")
+        assert item["data-is-valid"] == "true"
+        assert item["data-is-auto-matched"] == "true"
+        assert item["data-review-status"] == "unreviewed"
+    finally:
+        shutil.rmtree(session.root, ignore_errors=True)
+
+
 def test_review_post_does_not_persist_unsafe_external_url(client_nocsrf):
     """A javascript: URL submitted in the External URL field is dropped (not
     written to edits.json); a safe https URL is kept."""

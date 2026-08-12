@@ -52,6 +52,13 @@ button:hover { background: #7a1728; }
 .flash-message.success { background: #d1fae5; border-left-color: #10b981; color: #065f46; }
 .flash-message.error { background: #fee2e2; border-left-color: #ef4444; color: #991b1b; }
 .flash-message.info { background: #dbeafe; border-left-color: #3b82f6; color: #1e40af; }
+.review-filter-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.review-filter-controls button { background: #e5e7eb; color: #111827; border: 1px solid #cbd5e1; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.review-filter-controls button:hover { background: #d1d5db; }
+.review-filter-controls button.active { background: #3b82f6; border-color: #2563eb; color: #fff; }
+.review-filter-controls button.active:hover { background: #2563eb; }
+.review-indicator { font-size: 12px; font-weight: 600; }
+.filter-empty { display: none; margin-top: 10px; color: #475569; font-style: italic; }
 </style>
 </head>
 <body>
@@ -74,7 +81,7 @@ button:hover { background: #7a1728; }
 <strong>File:</strong> {{ filename or 'Unknown' }}<br>
 <strong>Manual type:</strong> {{ manual_type|title }}<br>
 <strong>References found:</strong> {{ references_count }}<br>
-<strong>Review page:</strong> {{ page }} of {{ total_pages }} ({{ showing_start }}-{{ showing_end }} of {{ total_paras }} paragraphs)<br>
+<strong>Review page:</strong> All reference paragraphs shown ({{ total_paras }} paragraphs)<br>
 <strong>Auto-matched to a heading:</strong> {{ auto_crosswalk_count }}<br>
 <strong>Headings available to link:</strong> {{ headings_count }}<br>
 <strong>Previously saved:</strong> {{ existing_validations_count }} decisions ({{ valid_loaded }} link, {{ invalid_loaded }} not)<br>
@@ -92,7 +99,7 @@ button:hover { background: #7a1728; }
 <li><strong>Skip non-links:</strong> Use “Skip linking” for text that should not become a link (most degree acronyms are filtered automatically; use Skip for one-offs).</li>
 <li><strong>Edit if needed:</strong> Change the link target or link text when the auto-match is wrong</li>
 <li><strong>Save frequently:</strong> Click "Save Edits" to keep your progress</li>
-<li><strong>Filter:</strong> Use "Hide Reviewed Items" to focus on unfinished rows</li>
+<li><strong>Filter:</strong> Use the reference filters to focus on valid, skipped, auto-matched, or unfinished rows</li>
 <li><strong>External URLs:</strong> Use the External URL field for links to other manuals or sites</li>
 </ol>
 Only cites with “Create a link” checked become links in the final document.
@@ -100,10 +107,15 @@ Only cites with “Create a link” checked become links in the final document.
 
 <div style="margin: 16px 0; padding: 12px; background: #dbeafe; border-radius: 8px; border-left: 4px solid #3b82f6;">
 <strong>Progress:</strong> <span id="reviewProgress">Loading...</span><br>
-<button type="button" id="toggleReviewed" onclick="toggleReviewedItems()" style="margin-top: 8px; background: #3b82f6; color: white; border: 0; padding: 8px 16px; border-radius: 6px; cursor: pointer;">
-Hide Reviewed Items
-</button>
-<span id="filterStatus" style="margin-left: 12px; font-style: italic; color: #1e40af;"></span>
+<div class="review-filter-controls" role="group" aria-label="Reference filters">
+<button type="button" class="active" data-reference-filter="all">All</button>
+<button type="button" data-reference-filter="valid">Valid</button>
+<button type="button" data-reference-filter="skipped">Skipped</button>
+<button type="button" data-reference-filter="auto">Auto-matched</button>
+<button type="button" data-reference-filter="unreviewed">Not yet reviewed</button>
+</div>
+<span id="filterStatus" style="display: inline-block; margin-top: 8px; font-style: italic; color: #1e40af;"></span>
+<div id="filterEmpty" class="filter-empty">No references match this filter.</div>
 </div>
 
 <form method="POST" id="reviewForm">
@@ -146,13 +158,14 @@ Hide Reviewed Items
              data-auto-target="{{ ref.auto_target_full }}"
              data-old-ref="{{ ref.old_ref }}"
              data-is-ignored="{{ 'true' if ref.is_ignored else 'false' }}"
+             data-is-auto-matched="{{ 'true' if ref.auto_match_found else 'false' }}"
              data-review-status="{{ ref.review_status }}"
              data-is-valid="{{ 'true' if (ref.is_valid and not ref.is_ignored) else 'false' }}">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <span style="font-size: 12px; color: #6b7280;">Cite {{ loop.index }} in this paragraph</span>
                 <span style="display: inline-flex; align-items: center; gap: 6px;">
                     <span class="skip-badge" id="skip_badge_{{ ref.ref_id }}">Skipped</span>
-                    <span style="font-size: 12px; font-weight: 600; color: {{ ref.review_badge_color }};">{{ ref.review_indicator }}</span>
+                    <span class="review-indicator" style="color: {{ ref.review_badge_color }};">{{ ref.review_indicator }}</span>
                 </span>
             </div>
             <div class="ref-summary" style="margin-bottom: 8px; padding: 8px; background: #fff; border-left: 3px solid #f59e0b; border-radius: 4px;">
@@ -328,8 +341,10 @@ Hide Reviewed Items
 
 <div class="actions" style="display: flex; gap: 12px; align-items: center;">
 <button type="submit" name="save_edits" style="background: #0284c7;">Save Edits</button>
+{% if total_pages > 1 %}
 <button type="submit" name="prev_page" style="background: #64748b;" {{ 'disabled' if page <= 1 }}>Save &amp; Previous</button>
 <button type="submit" name="next_page" style="background: #64748b;" {{ 'disabled' if page >= total_pages }}>Save &amp; Next</button>
+{% endif %}
 <button type="submit" name="proceed" style="background: #981E32;">Proceed with Conversion</button>
 </div>
 </form>
@@ -339,68 +354,157 @@ window.addEventListener('DOMContentLoaded', function() {
     if (allCheckboxes.length === 0) {
         console.warn('WARNING: No reference checkboxes found on page.');
     }
-    updateProgressCounter();
+    document.querySelectorAll('[data-reference-filter]').forEach(button => {
+        button.addEventListener('click', function() {
+            setReferenceFilter(this.getAttribute('data-reference-filter') || 'all');
+        });
+    });
+    document.querySelectorAll('.reference-review-item input, .reference-review-item select').forEach(control => {
+        const eventName = control.tagName.toLowerCase() === 'input' && control.type === 'text' ? 'input' : 'change';
+        control.addEventListener(eventName, function() {
+            const item = this.closest('.reference-review-item');
+            if (item) {
+                item.setAttribute('data-client-reviewed', 'true');
+            }
+            refreshReferenceReview();
+        });
+    });
+    refreshReferenceReview();
 });
 
-// Toggle hiding reviewed items (only those marked valid/checked)
-let showingReviewedItems = true;
-function toggleReviewedItems() {
-    showingReviewedItems = !showingReviewedItems;
-    const reviewedItems = document.querySelectorAll('.reference-review-item[data-is-valid="true"]');
-    const button = document.getElementById('toggleReviewed');
-    const statusSpan = document.getElementById('filterStatus');
+const REFERENCE_FILTER_LABELS = {
+    all: 'All',
+    valid: 'Valid',
+    skipped: 'Skipped',
+    auto: 'Auto-matched',
+    unreviewed: 'Not yet reviewed'
+};
+let activeReferenceFilter = 'all';
 
-    reviewedItems.forEach(item => {
-        item.style.display = showingReviewedItems ? '' : 'none';
-    });
-
-    // Hide entire paragraph blocks if all their valid refs are hidden
-    const paragraphBlocks = document.querySelectorAll('.reference-item');
-    paragraphBlocks.forEach(block => {
-        const targetRefs = Array.from(block.querySelectorAll('.reference-review-item[data-is-valid="true"]'));
-        if (targetRefs.length === 0) {
-            block.style.display = ''; // nothing to hide in this block
-            return;
-        }
-        const anyVisible = targetRefs.some(r => r.style.display !== 'none');
-        block.style.display = anyVisible || showingReviewedItems ? '' : 'none';
-    });
-
-    if (showingReviewedItems) {
-        button.textContent = 'Hide Reviewed Items';
-        statusSpan.textContent = '';
-    } else {
-        button.textContent = 'Show All Items';
-        statusSpan.textContent = '(Showing only unreviewed items)';
-    }
-
-    updateProgressCounter();
+function getReferenceState(item) {
+    const refId = item.getAttribute('data-ref-id') || '';
+    const validBox = document.getElementById('ref_valid_' + refId);
+    const ignoreBox = document.getElementById('ref_ignore_' + refId);
+    const skipped = ignoreBox ? ignoreBox.checked : item.getAttribute('data-is-ignored') === 'true';
+    const validFromDisabled = validBox && validBox.disabled && item.getAttribute('data-is-valid') === 'true';
+    const valid = !skipped && Boolean(validBox ? (validBox.checked || validFromDisabled) : item.getAttribute('data-is-valid') === 'true');
+    const autoMatched = item.getAttribute('data-is-auto-matched') === 'true'
+        || (item.getAttribute('data-auto-target') || '').trim().length > 0;
+    const reviewed = item.getAttribute('data-review-status') === 'reviewed'
+        || item.getAttribute('data-client-reviewed') === 'true';
+    return { valid, skipped, autoMatched, reviewed };
 }
 
-// Update progress counter
+function syncReferenceState(item) {
+    const state = getReferenceState(item);
+    item.setAttribute('data-is-valid', state.valid ? 'true' : 'false');
+    item.setAttribute('data-is-ignored', state.skipped ? 'true' : 'false');
+    item.setAttribute('data-review-status', state.reviewed ? 'reviewed' : 'unreviewed');
+    item.classList.toggle('ref-collapsed', state.skipped);
+    const indicator = item.querySelector('.review-indicator');
+    if (indicator) {
+        indicator.textContent = state.reviewed ? '✓ Reviewed' : '○ Not reviewed yet';
+        indicator.style.color = state.reviewed ? '#10b981' : '#9ca3af';
+    }
+    return state;
+}
+
 function updateProgressCounter() {
     const allItems = document.querySelectorAll('.reference-review-item');
-    const reviewedItems = document.querySelectorAll('.reference-review-item[data-review-status="reviewed"]');
-    const validItems = document.querySelectorAll('.reference-review-item[data-is-valid="true"]');
-    const skippedItems = document.querySelectorAll('.reference-review-item[data-is-ignored="true"]');
-    const unreviewedItems = document.querySelectorAll('.reference-review-item[data-review-status="unreviewed"]');
-    const autoMatchedItems = Array.from(allItems).filter(item => {
-        const target = item.getAttribute('data-auto-target') || '';
-        return target.trim().length > 0;
+    const counts = {
+        total: allItems.length,
+        reviewed: 0,
+        valid: 0,
+        skipped: 0,
+        auto: 0,
+        unreviewed: 0
+    };
+    allItems.forEach(item => {
+        const state = syncReferenceState(item);
+        if (state.reviewed) counts.reviewed += 1;
+        if (state.valid) counts.valid += 1;
+        if (state.skipped) counts.skipped += 1;
+        if (state.autoMatched) counts.auto += 1;
+        if (!state.reviewed) counts.unreviewed += 1;
     });
-
-    const total = allItems.length;
-    const reviewed = reviewedItems.length;
-    const valid = validItems.length;
-    const skipped = skippedItems.length;
-    const autoMatched = autoMatchedItems.length;
-    const unreviewed = unreviewedItems.length;
 
     const progressSpan = document.getElementById('reviewProgress');
     progressSpan.innerHTML = `
-        <strong>${reviewed} of ${total} reviewed</strong>
-        (${valid} valid references, ${skipped} skipped, ${autoMatched} auto-matched, ${unreviewed} not yet reviewed)
+        <strong>${counts.reviewed} of ${counts.total} reviewed</strong>
+        (${counts.valid} valid references, ${counts.skipped} skipped, ${counts.auto} auto-matched, ${counts.unreviewed} not yet reviewed)
     `;
+    return counts;
+}
+
+function matchesReferenceFilter(state, filterName) {
+    if (filterName === 'valid') return state.valid;
+    if (filterName === 'skipped') return state.skipped;
+    if (filterName === 'auto') return state.autoMatched;
+    if (filterName === 'unreviewed') return !state.reviewed;
+    return true;
+}
+
+function applyReferenceFilter() {
+    const allItems = document.querySelectorAll('.reference-review-item');
+    let visibleCount = 0;
+    allItems.forEach(item => {
+        const show = matchesReferenceFilter(getReferenceState(item), activeReferenceFilter);
+        item.style.display = show ? '' : 'none';
+        if (show) visibleCount += 1;
+    });
+    document.querySelectorAll('.reference-item').forEach(block => {
+        const refs = Array.from(block.querySelectorAll('.reference-review-item'));
+        const anyVisible = refs.some(ref => ref.style.display !== 'none');
+        block.style.display = anyVisible ? '' : 'none';
+    });
+    const empty = document.getElementById('filterEmpty');
+    if (empty) {
+        empty.style.display = visibleCount === 0 ? 'block' : 'none';
+    }
+    return visibleCount;
+}
+
+function updateFilterButtons(counts) {
+    const countByFilter = {
+        all: counts.total,
+        valid: counts.valid,
+        skipped: counts.skipped,
+        auto: counts.auto,
+        unreviewed: counts.unreviewed
+    };
+    document.querySelectorAll('[data-reference-filter]').forEach(button => {
+        const filterName = button.getAttribute('data-reference-filter') || 'all';
+        button.classList.toggle('active', filterName === activeReferenceFilter);
+        button.textContent = `${REFERENCE_FILTER_LABELS[filterName] || filterName} (${countByFilter[filterName] || 0})`;
+    });
+}
+
+function updateFilterStatus(visibleCount, counts) {
+    const statusSpan = document.getElementById('filterStatus');
+    if (!statusSpan) return;
+    if (activeReferenceFilter === 'all') {
+        statusSpan.textContent = '';
+        return;
+    }
+    const label = REFERENCE_FILTER_LABELS[activeReferenceFilter] || activeReferenceFilter;
+    const noun = visibleCount === 1 ? 'reference' : 'references';
+    statusSpan.textContent = `Showing ${visibleCount} of ${counts.total}: ${label.toLowerCase()} ${noun}`;
+}
+
+function refreshReferenceReview() {
+    const counts = updateProgressCounter();
+    const visibleCount = applyReferenceFilter();
+    updateFilterButtons(counts);
+    updateFilterStatus(visibleCount, counts);
+}
+
+function setReferenceFilter(filterName) {
+    activeReferenceFilter = REFERENCE_FILTER_LABELS[filterName] ? filterName : 'all';
+    refreshReferenceReview();
+}
+
+function toggleReviewedItems() {
+    setReferenceFilter(activeReferenceFilter === 'unreviewed' ? 'all' : 'unreviewed');
 }
 </script>
 <p style="margin-top: 12px; color: #666; font-size: 14px;">

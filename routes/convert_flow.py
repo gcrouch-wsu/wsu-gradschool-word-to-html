@@ -4,7 +4,6 @@ import hashlib
 import json
 import html
 import logging
-import math
 import re
 import subprocess
 import uuid
@@ -560,7 +559,6 @@ def review(session_id):
     elif src_path.exists():
         has_tables = has_tables_in_docx(src_path)
 
-    page_size = 50
     try:
         page = int(request.values.get('page', '1'))
     except Exception:
@@ -580,10 +578,12 @@ def review(session_id):
         ref_by_para[para_idx].append((ref, stable_id))
     para_keys = sorted(ref_by_para.keys())
     total_paras = len(para_keys)
-    total_pages = max(1, math.ceil(total_paras / page_size))
-    page = max(1, min(page, total_pages))
-    start_idx = (page - 1) * page_size
-    end_idx = start_idx + page_size
+    # Keep reference review in one form so filters and counts cover the whole
+    # document and operators do not have to page through saved decisions.
+    total_pages = 1
+    page = 1
+    start_idx = 0
+    end_idx = total_paras
     page_para_keys = para_keys[start_idx:end_idx]
     showing_start = start_idx + 1 if total_paras else 0
     showing_end = min(end_idx, total_paras)
