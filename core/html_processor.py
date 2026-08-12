@@ -122,7 +122,7 @@ def sanitize_manual_html_fragment(html: str) -> str:
                 rel = [str(rel)]
             if 'stylesheet' in [r.lower() for r in rel]:
                 link.decompose()
-        _unwrap_underlines_inside_links(soup)
+        _unwrap_underlines_touching_links(soup)
         return _fragment_contents(soup)
     cleaned = bleach.clean(
         html,
@@ -133,7 +133,7 @@ def sanitize_manual_html_fragment(html: str) -> str:
         css_sanitizer=_CSS_SANITIZER,
     )
     soup = BeautifulSoup(cleaned, _HTML_PARSER)
-    _unwrap_underlines_inside_links(soup)
+    _unwrap_underlines_touching_links(soup)
     return _fragment_contents(soup)
 
 
@@ -145,9 +145,9 @@ def _fragment_contents(soup: BeautifulSoup) -> str:
     return ''.join(str(child) for child in soup.contents)
 
 
-def _unwrap_underlines_inside_links(soup: BeautifulSoup) -> None:
-    for anchor in soup.find_all('a'):
-        for underline in anchor.find_all('u'):
+def _unwrap_underlines_touching_links(soup: BeautifulSoup) -> None:
+    for underline in soup.find_all('u'):
+        if underline.find_parent('a') or underline.find('a'):
             underline.unwrap()
 
 

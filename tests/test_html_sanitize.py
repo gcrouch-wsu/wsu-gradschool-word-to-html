@@ -27,6 +27,12 @@ def test_sanitize_unwraps_underlines_inside_links():
     assert '<a href="https://wsu.edu">WSU</a>' in out
 
 
+def test_sanitize_unwraps_underlines_around_links():
+    out = sanitize_manual_html_fragment('<p><u><a href="https://wsu.edu">WSU</a></u></p>')
+    assert "<u>" not in out.lower()
+    assert '<a href="https://wsu.edu">WSU</a>' in out
+
+
 def test_manual_grid_block_does_not_nest_document_tags():
     out = build_manual_grid_block(
         "<html><body><h1>Chapter 1</h1><p>Body</p></body></html>",
