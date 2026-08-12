@@ -55,7 +55,7 @@ def _parse(ref_id: str):
     return int(match.group(1)), int(match.group(2)), match.group(3)
 
 
-def plan_reference_id_changes(references: list, edits_data: dict):
+def plan_reference_id_changes(references: list, edits_data: dict, *, trust_exact_ids: bool = False):
     """Work out how stored reference ids map onto this document.
 
     Returns ``(remap, ambiguous_ids)``:
@@ -63,6 +63,13 @@ def plan_reference_id_changes(references: list, edits_data: dict):
     * ``remap`` — ``{stored_id: current_id}`` for entries that moved.
     * ``ambiguous_ids`` — stored ids whose label gained or lost a citation, so no
       trustworthy pairing exists. Their edits must be discarded, not guessed.
+
+    When ``trust_exact_ids`` is true, exact stored ids that still exist in the
+    current document are kept even if the same label appears elsewhere. Use this
+    only when an outer boundary proves the document is unchanged (for example, a
+    session-bundle doc hash matching the imported DOCX). Without that proof, an
+    edited document can move one identical citation into another one's old
+    positional id.
     """
     from core.docx_processor import generate_stable_ref_id
 
@@ -91,25 +98,42 @@ def plan_reference_id_changes(references: list, edits_data: dict):
     ambiguous: set[str] = set()
     for label_hash, stored in stored_by_hash.items():
         current = current_by_hash.get(label_hash, [])
-        if len(stored) == len(current):
+        if trust_exact_ids:
+            current_set = set(current)
+            exact = {rid for rid in stored if rid in current_set}
+            stored_to_pair = [rid for rid in stored if rid not in exact]
+            current_to_pair = [rid for rid in current if rid not in exact]
+        else:
+            stored_to_pair = stored
+            current_to_pair = current
+
+        if not stored_to_pair:
+            continue
+
+        if len(stored_to_pair) == len(current_to_pair):
             # The group is intact; document order is a trustworthy pairing.
-            for stored_id, current_id in zip(stored, current):
+            for stored_id, current_id in zip(stored_to_pair, current_to_pair):
                 if stored_id != current_id:
                     remap[stored_id] = current_id
             continue
         # A citation with this label was added or removed. Positional ids cannot
         # say which, and an exact id match here would be coincidence, so refuse.
-        ambiguous.update(stored)
+        ambiguous.update(stored_to_pair)
         logger.warning(
             "Reference remap: label hash %s has %d saved entr(ies) but %d citation(s) "
             "in the document now; dropping those edits rather than guessing which "
             "citation each belongs to.",
-            label_hash, len(stored), len(current),
+            label_hash, len(stored_to_pair), len(current_to_pair),
         )
     return remap, ambiguous
 
 
-def remap_reference_edits(references: list, edits_data: dict) -> tuple[dict, int, int]:
+def remap_reference_edits(
+    references: list,
+    edits_data: dict,
+    *,
+    trust_exact_ids: bool = False,
+) -> tuple[dict, int, int]:
     """Return ``(edits, moved, dropped)`` with reference ids re-attached.
 
     ``moved`` counts entries that followed their citation to a new id.
@@ -117,7 +141,9 @@ def remap_reference_edits(references: list, edits_data: dict) -> tuple[dict, int
     """
     if not references or not isinstance(edits_data, dict):
         return edits_data, 0, 0
-    remap, ambiguous = plan_reference_id_changes(references, edits_data)
+    remap, ambiguous = plan_reference_id_changes(
+        references, edits_data, trust_exact_ids=trust_exact_ids
+    )
     if not remap and not ambiguous:
         return edits_data, 0, 0
 

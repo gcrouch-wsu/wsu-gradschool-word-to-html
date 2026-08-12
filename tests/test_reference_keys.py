@@ -100,6 +100,28 @@ def test_an_exact_id_match_is_not_trusted_on_its_own():
     assert ambiguous == {kept, orphan}, "two saved entries, one citation — both are suspect"
 
 
+def test_trusted_same_document_keeps_partial_repeated_label_edits(caplog):
+    """A bundle may store decisions for only some copies of a repeated label.
+
+    When the bundle hash proves the DOCX is unchanged, exact ids still present in
+    the current extraction are safe to keep. Comparing saved decisions against
+    total citations for the label incorrectly parked real work from GSPP:
+    three reviewed Chapter 12.7.8 cites among nine total looked ambiguous even
+    though the document had not changed.
+    """
+    saved = _rid(30, 5, "Section IV.G.8")
+    refs = [
+        _ref(10, 5, "Section IV.G.8"),
+        _ref(20, 5, "Section IV.G.8"),
+        _ref(30, 5, "Section IV.G.8"),
+    ]
+    data = _edits(**{saved: "https://wsu.edu/a"})
+    out, moved, dropped = remap_reference_edits(refs, data, trust_exact_ids=True)
+    assert (moved, dropped) == (0, 0)
+    assert out is data
+    assert "dropping those edits" not in caplog.text
+
+
 def test_a_different_label_is_never_matched():
     """The label hash is the anchor — a moved citation must keep its identity."""
     stored_id = _rid(10, 5, "Section IV.G.8")

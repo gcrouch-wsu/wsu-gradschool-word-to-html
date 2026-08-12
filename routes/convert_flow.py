@@ -217,6 +217,7 @@ def heading_review(session_id):
         if not edit_data:
             edit_data = {
                 'document': filename,
+                'doc_hash': session_data.get('doc_hash') or "",
                 'auto_crosswalk': auto_crosswalk,
                 'approved_crosswalk': {},
                 'reference_edits': {},
@@ -226,6 +227,7 @@ def heading_review(session_id):
                 'last_updated': str(datetime.now())
             }
         edit_data['document'] = filename
+        edit_data['doc_hash'] = session_data.get('doc_hash') or ""
         edit_data['auto_crosswalk'] = auto_crosswalk
         edit_data['approved_crosswalk'] = updated
         edit_data['last_updated'] = str(datetime.now())
@@ -507,6 +509,7 @@ def convert():
             edit_tables=edit_tables,
         )
         session_data['owner'] = current_uid()
+        session_data['doc_hash'] = compute_sha256(src)
         save_session_data(session, session_data)
         logger.info(f"Session saved: {session_id}")
 
@@ -586,6 +589,7 @@ def review(session_id):
     showing_end = min(end_idx, total_paras)
     manual_type = session_data.get('manual_type', 'chapter')
     filename = session_data.get('filename', '')
+    session_doc_hash = session_data.get('doc_hash') or ""
 
     logger.debug(f"Session loaded - new_headings has {len(new_headings)} entries, references has {len(references)} entries")
     logger.debug(f"Auto-matched {len(auto_crosswalk)} OLD->NEW references")
@@ -716,6 +720,7 @@ def review(session_id):
         # Save to persistent edit file
         edit_data = {
             'document': filename,
+            'doc_hash': session_doc_hash,
             'auto_crosswalk': auto_crosswalk,
             'approved_crosswalk': approved_crosswalk,
             'reference_edits': edits,
@@ -800,7 +805,11 @@ def review(session_id):
     # Same re-attachment the conversion does, so the review page shows the
     # operator their saved work against the edited document rather than a page
     # of blank fields. Persist it, so the next save writes the current ids.
-    edit_data, remapped, discarded = remap_reference_edits(references, edit_data)
+    edit_data, remapped, discarded = remap_reference_edits(
+        references,
+        edit_data,
+        trust_exact_ids=bool(session_doc_hash and edit_data.get('doc_hash') == session_doc_hash),
+    )
     if remapped or discarded:
         save_edits_data(session, edit_data)
     if remapped:
@@ -1277,6 +1286,7 @@ def do_convert(session_id):
 
     # Load saved reference edits, validations, and link targets if they exist
     edit_file = session.edits_json
+    session_doc_hash = session_data.get('doc_hash') or ""
     reference_edits = {}
     reference_validations = {}
     reference_link_targets = {}
@@ -1289,7 +1299,11 @@ def do_convert(session_id):
             # Reference ids encode paragraph position, so an inserted paragraph
             # shifts every id below it and the operator's curated link targets
             # and external URLs silently stop applying.
-            edit_data, moved, dropped = remap_reference_edits(original_references, edit_data)
+            edit_data, moved, dropped = remap_reference_edits(
+                original_references,
+                edit_data,
+                trust_exact_ids=bool(session_doc_hash and edit_data.get('doc_hash') == session_doc_hash),
+            )
             if moved:
                 flash(
                     f"The document changed since these edits were saved — "

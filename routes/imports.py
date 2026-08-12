@@ -18,7 +18,7 @@ from werkzeug.utils import secure_filename
 from webapp import app
 from auth import current_uid
 from config import SessionDir, ZIP_MAX_UNCOMPRESSED_BYTES, ZIP_MAX_FILES
-from services.session_state import save_session_data, load_edits_data
+from services.session_state import save_session_data, load_edits_data, save_edits_data
 from services.docx_session import (
     run_docx_prepipeline,
     scrape_new_structure,
@@ -372,6 +372,12 @@ def import_bundle():
         else:
             flash(f"Session imported for {doc_name}.")
 
+        current_doc_hash = compute_sha256(dest_doc)
+        edits_data = load_edits_data(session)
+        if not revised_docx and expected_hash and expected_hash == current_doc_hash:
+            edits_data["doc_hash"] = current_doc_hash
+            save_edits_data(session, edits_data)
+
         # Immediately start a review session from the imported doc/edits
         try:
             style_map = {}
@@ -446,6 +452,7 @@ def import_bundle():
             if appr:
                 session_data['approved_crosswalk'] = appr
             session_data['owner'] = current_uid()
+            session_data['doc_hash'] = current_doc_hash
             save_session_data(session, session_data)
 
             if skip_review:
