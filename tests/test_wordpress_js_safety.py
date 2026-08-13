@@ -115,6 +115,18 @@ def test_heading_copy_icon_stays_with_the_last_word():
     assert 'this.closest("h1, h2, h3, h4, h5, h6")' in SOURCE
 
 
+def test_print_button_is_created_in_the_toc():
+    start = SOURCE.index("manual-print-button")
+    body = SOURCE[start:start + 2400]
+    assert 'printButton.type = "button"' in body
+    assert 'printButton.textContent = "Print / Save PDF"' in body
+    assert 'Print or save this manual as a PDF' in body
+    assert 'window.print()' in body
+    assert 'toc.querySelector("#toc-heading, h2")' in body
+    assert 'toc.insertBefore(printButton, tocHeading || toc.firstChild)' in body
+    assert 'printButton.style.setProperty(prop, printButtonStyles[prop], "important")' in body
+
+
 @pytest.mark.parametrize("sink", ["insertAdjacentHTML", "outerHTML", "document.write"])
 def test_other_markup_sinks_are_absent(sink):
     """Keep the surface to the one reviewed sink."""

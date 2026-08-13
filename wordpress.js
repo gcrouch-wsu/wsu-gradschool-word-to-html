@@ -101,6 +101,53 @@
       var toc = grid.querySelector(".manual-toc");
       if (!manual || !toc) continue;
 
+      if (!toc.querySelector(".manual-print-button")) {
+        var printButton = document.createElement("button");
+        printButton.type = "button";
+        printButton.className = "manual-print-button";
+        printButton.textContent = "Print / Save PDF";
+        printButton.setAttribute("aria-label", "Print or save this manual as a PDF");
+        printButton.title = "Print or save as PDF";
+        var printButtonStyles = {
+          "align-items": "center",
+          "background": "#A60F2D",
+          "border": "1px solid #8A0D26",
+          "border-radius": "6px",
+          "box-shadow": "0 2px 4px rgba(0,0,0,0.08)",
+          "box-sizing": "border-box",
+          "color": "#fff",
+          "cursor": "pointer",
+          "display": "inline-flex",
+          "font-family": "\"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif",
+          "font-size": "14px",
+          "font-weight": "700",
+          "gap": "6px",
+          "justify-content": "center",
+          "line-height": "1.2",
+          "margin": "0 0 12px",
+          "padding": "10px 12px",
+          "text-align": "center",
+          "width": "100%"
+        };
+        Object.keys(printButtonStyles).forEach(function(prop) {
+          printButton.style.setProperty(prop, printButtonStyles[prop], "important");
+        });
+        printButton.addEventListener("click", function(evt) {
+          evt.preventDefault();
+          window.print();
+        });
+        printButton.addEventListener("mouseenter", function() {
+          this.style.setProperty("background", "#8A0D26", "important");
+          this.style.setProperty("border-color", "#6f0a1f", "important");
+        });
+        printButton.addEventListener("mouseleave", function() {
+          this.style.setProperty("background", "#A60F2D", "important");
+          this.style.setProperty("border-color", "#8A0D26", "important");
+        });
+        var tocHeading = toc.querySelector("#toc-heading, h2");
+        toc.insertBefore(printButton, tocHeading || toc.firstChild);
+      }
+
       // Keep sticky TOC working even when outer wrappers clip overflow or use transforms.
       // MDN: position:sticky fails when ancestor has overflow:hidden/auto/scroll OR transform/filter/perspective.
       (function ensureStickyAncestors() {
