@@ -72,10 +72,32 @@ When you edit the manual in Word and want published URLs (`#section-anchors`) to
 After upload, the app guides you through checks that depend on your options and document:
 
 - **Heading-number review** — when mapping to new numbers; confirm or fix how old numbers map to new ones. Skipped in **Keep…** mode.
-- **Reference / crosswalk review** — body cites can be linked to headings; set external URLs; use **Skip linking** for text that is not a manual cite. Common degree acronyms (`D.V.M.`, `Ph.D.`, and similar dotted letter tokens) are filtered out automatically and usually never appear here.
+- **Reference / crosswalk review** — body cites can be linked to internal headings or external URLs; mark non-cites as **Do not link**. Common degree acronyms (`D.V.M.`, `Ph.D.`, and similar dotted letter tokens) are filtered out automatically and usually never appear here.
 - **Table review** — if you enabled it (or later via **Table settings…** on preview): per-table header row, column alignment, and placement.
 
 Follow the on-screen prompts until you reach the **preview** with export actions. Optional **Document colors & fonts** on the preview updates theme CSS for this session.
+
+---
+
+## Reference review workflow
+
+The reference review page is designed so you can work from the top down, approve obvious matches quickly, and save an incomplete session.
+
+- Use the filter bar to focus the list:
+  - **Needs action** — no usable link decision yet; choose a heading, enter an external URL, or mark **Do not link**.
+  - **Needs review** — link-ready items that still need your approval.
+  - **Ready to link** — citations that will become links.
+  - **Skipped** — citations marked as plain text.
+  - **Auto-matched** — citations the app matched to a heading.
+  - **All** — every detected citation.
+- For each citation, choose exactly one decision:
+  - **Internal heading** — link to a heading in this manual.
+  - **External URL** — link to another page or site.
+  - **Do not link** — keep the citation as plain text in the final HTML.
+- Auto-matched citations are preselected as internal links, but remain in **Needs review** until you approve them.
+- Use **Approve** on one citation after you verify it. Use **Approve visible** after filtering to a set you have checked. Use **Approve exact auto-matches** when exact matches are clearly safe to accept in bulk.
+- Use **Change** to open the full controls for a citation. Use **Edit link text** only when the linked words should differ from the citation text imported from Word.
+- Use **Save progress** as often as needed. You can stop mid-review and continue later from the same session or from an exported **Session Bundle**.
 
 ---
 
@@ -135,7 +157,9 @@ The TOC panel is controlled by the site-level JS. With the current `wordpress.js
 | Need a PDF copy | Use **Print / Save PDF** above the TOC on the published/manual preview page, then choose Save as PDF in the browser print dialog. |
 | No table review mid-flow | Enable **Open table review before export** **before** uploading, or use **Table settings…** on the preview. |
 | Heading map ignored | Prefer **file upload** in the heading-map box; check JSON validity. |
-| Degree / acronym wrongly offered as a cite | Use **Skip linking**. Common dotted degrees are filtered automatically. |
+| Degree / acronym wrongly offered as a cite | Mark it **Do not link**. Common dotted degrees are filtered automatically. |
+| Reference review opens with only a few items visible | Check the active filter. **Needs review** is the default; use **All** to see every detected citation. |
+| Auto-matched references still say Needs review | That is expected. The link is ready, but you still need to approve it or use **Approve exact auto-matches**. |
 | Lost in-progress work | Sessions live under the server’s temp folder; OS cleanup can remove them. Use **Export Session Bundle** when you need a backup. |
 
 ---
