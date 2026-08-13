@@ -16,20 +16,23 @@ This page explains how to use the **web application** to turn a Word manual (`.d
 ## Before you start (requirements)
 
 - A **`.docx`** file (Microsoft Word format).
+- **All tracked changes must be resolved** in Word (**Review → Accept/Reject**) before upload. The app refuses documents with pending revisions.
 - **Pandoc** must be installed on the machine that runs the app. If the app fails to start, install Pandoc from [pandoc.org/installing.html](https://pandoc.org/installing.html) and confirm `pandoc --version` works in a terminal.
+
+If the production app asks you to sign in, enter the account email and password supplied by your team. Use the eye button in the password field to show or hide what you typed before submitting.
 
 ---
 
 ## Main workflow: first-time conversion
 
 1. On the home page, under **1. Start from Word**, choose your `.docx` file.
-2. Set **Conversion options** (see [Options explained](#conversion-options) below).
+2. Set **Conversion options** (see [Options explained](#conversion-options) below). Skip the heading-map box on a first run.
 3. Click **Continue with Word file**.
-4. Complete each review step the app presents (for example headings, references, and optionally **table review** if you enabled it).
-5. When you reach the final preview, click **Proceed with Conversion** (or the equivalent control on that screen).
-6. Use the download buttons to save the files you need (see [Downloads](#downloads-what-each-file-is-for)).
+4. Complete each review step the app presents (heading numbers when remapping, references, and optionally **table review** if you enabled it).
+5. When you reach the final preview, use the download buttons (see [Downloads](#downloads-what-each-file-is-for)).
+6. Save the **Heading Map** JSON from the download list so you can reuse it after the next Word edit. Export a **Session Bundle** if you need a backup or handoff.
 
-You do **not** need a heading map the first time. Save the **Heading Map** JSON from the download list so you can reuse it after the next Word edit.
+Sessions are temporary (typically kept for a couple of days on the server unless cleaned up earlier). Export a bundle when you need the work to survive beyond that.
 
 ---
 
@@ -38,9 +41,9 @@ You do **not** need a heading map the first time. Save the **Heading Map** JSON 
 When you edit the manual in Word and want published URLs (`#section-anchors`) to stay the same for unchanged headings:
 
 1. Upload the **new** `.docx` on the home page (**1. Start from Word**).
-2. In the **same form**, use the shaded **Optional: heading map** box: pick your previous heading map file (the one you downloaded last time—often named like `*.heading-map.json`). You do **not** need a separate step; it goes with the Word file.
+2. In the **same form**, use the shaded **Optional: heading map** box: pick your previous heading map file (often named like `*.heading-map.json`). You do **not** need a separate step; it goes with the Word file.
 3. Or paste the map text under **Prefer to paste the map instead of using a file?** If both a file and pasted text are filled in, the **pasted text wins**.
-4. Leave **Keep heading numbers in text** **unchecked** unless you intentionally want numbers embedded in heading text (the site CSS usually adds numbering automatically). **When that option is on, numbers are part of the visible heading**, so they are part of the **permalink signature**—changing only a number in Word can change the anchor unless the heading map is updated.
+4. Choose mapping mode to match the document (see options below). Leave **Show numbers in the heading text** **unchecked** unless you intentionally want numbers embedded in heading HTML (the site CSS usually adds numbering). **When that option is on, numbers are part of the visible heading**, so they are part of the **permalink signature**—changing only a number in Word can change the anchor unless the heading map is updated.
 5. Run through review and convert again.
 6. Download a **new** heading map for the next cycle.
 
@@ -52,54 +55,72 @@ When you edit the manual in Word and want published URLs (`#section-anchors`) to
 
 | Control | What it does |
 |--------|----------------|
-| **Open table review before export** | If the document has tables, you get a table review step before export so you can check formatting. |
-| **Keep heading numbers in text** | Keeps literals like `Chapter 1` or `I.A.` inside the heading text. **Off** is normal when your site CSS adds numbering. |
-| **Table of Contents Depth** | How many heading levels appear in the generated TOC (H1 through H5, depending on selection). |
-| **Heading mapping mode** | **Map to new numeric headings** (recommended) vs **Keep original headings/numbering**. |
-| **Heading map (Advanced)** | Reuses stable anchor IDs from a previous export so WordPress links stay valid when text is unchanged. |
+| **Top-level label (Chapter or Section)** | **Auto** detects from Chapter/Section headings in the Word file (not cover-page keywords). Override to Chapter or Section only if Auto is wrong. |
+| **How should body references match headings?** | **Map body cites to new heading numbers** — use when renumbering (letter/Roman → decimals); runs a heading-number review. **Keep the Word file’s heading numbers** — use when the DOCX is already decimal; skips that review. |
+| **Show numbers in the heading text** | Only applies in **Map…** mode. Off (default) strips typed numbers so site CSS can add them. In **Keep…** mode this checkbox is ignored — Word numbers stay either way. |
+| **Open table review before export** | If the document has tables, you get a table review step before export. You can also open **Table settings…** from the preview later. |
+| **Table of Contents Depth** | How many heading levels appear in the generated TOC (H1 through H5). |
+| **Advanced** | Infer heading levels from Word numbering styles (map-to-new only); strip direct Word formatting. Leave off unless a conversion mis-levels headings or you need a cleaner slate for CSS. |
+| **Heading map (optional box)** | Reuses stable anchor IDs from a previous export so WordPress links stay valid when heading text is unchanged. |
+
+**Quick pick:** Already-decimal manuals (e.g. Chapter 4.2 in Word) → **Keep the Word file’s heading numbers**. Being renumbered → **Map body cites to new heading numbers**.
 
 ---
 
 ## Review steps (what to expect)
 
-After upload, the app guides you through checks that depend on your document. Typical stages include:
+After upload, the app guides you through checks that depend on your options and document:
 
-- **Heading review** — confirm structure and levels; you may correct how headings are interpreted.
-- **Reference / crosswalk review** — legacy references (Roman numerals, letters) can be aligned to the new numeric structure.
-- **Table review** — only if you enabled table review and tables were found.
+- **Heading-number review** — when mapping to new numbers; confirm or fix how old numbers map to new ones. Skipped in **Keep…** mode.
+- **Reference / crosswalk review** — body cites can be linked to headings; set external URLs; use **Skip linking** for text that is not a manual cite. Common degree acronyms (`D.V.M.`, `Ph.D.`, and similar dotted letter tokens) are filtered out automatically and usually never appear here.
+- **Table review** — if you enabled it (or later via **Table settings…** on preview): per-table header row, column alignment, and placement.
 
-Follow the on-screen prompts until you reach the **preview** with export actions.
+Follow the on-screen prompts until you reach the **preview** with export actions. Optional **Document colors & fonts** on the preview updates theme CSS for this session.
 
 ---
 
 ## Downloads: what each file is for
 
+Grouped on the preview page:
+
+**Recommended for WordPress**
+
 | Download | Use |
 |----------|-----|
+| **Fragment** | **Body HTML only** — paste into a WordPress **Custom HTML** block. |
+| **CSS + theme** | Site stylesheet plus this session’s colors/fonts/table theme. |
+| **JS** | Install on the WordPress site for TOC, search, the TOC print button, and navigation. |
+
+**Also available**
+
+| Download | Use |
+|----------|-----|
+| **Fragment + CSS** | Convenient **offline preview** of the fragment with styles embedded; **not** a substitute for proper WordPress CSS/JS deployment. |
 | **Standalone HTML** | Full page with embedded styles/scripts — best for **local preview** in a browser. |
-| **Fragment** | **Body HTML only** — paste into a WordPress **Custom HTML** block (or equivalent). |
-| **Fragment + CSS** | Convenient **offline preview** of the fragment with styles embedded; **not** a substitute for proper WordPress CSS deployment (see below). |
 | **DOCX** | Clean Word file for the **next editing round**; re-upload after edits. |
-| **CSS** / **JS** | Install on the WordPress site (theme, Customizer, or snippet plugin) so the manual matches the preview. |
-| **Heading Map** | JSON to upload next time under **Advanced** for **permalink continuity**. |
-| **Session Bundle (.zip)** | Saves session artifacts for **restore** via **Import & Restore → Session Bundle**. |
+| **CSS (base only)** | Stylesheet alone — for sites that already have theme colors installed. |
+| **Heading Map** | JSON to attach next time in the optional heading-map box for **permalink continuity**. |
+| **Session Bundle (.zip)** | Saves session artifacts for **restore** via **3. Restore a session bundle**. |
+| **Table settings…** | Re-open table review when the document has tables. |
 
 ---
 
 ## WordPress deployment (summary)
 
-1. Add **CSS** site-wide (e.g. **Appearance → Customize → Additional CSS** or a CSS plugin).
+1. Add **CSS** site-wide (e.g. **Appearance → Customize → Additional CSS** or a CSS plugin). Prefer **CSS + theme** or **CSS (base only)** as appropriate; **append** below any existing site CSS — do not replace the whole box.
 2. Add **JS** site-wide or via a **code snippet** plugin. If your snippet UI expects raw HTML, wrap the script in `<script> … </script>` tags.
 3. Paste the **Fragment** HTML into a **Custom HTML** block.
 
-**Important:** WordPress often strips `<input>`, `<style>`, and `<script>` from Custom HTML blocks. The shipped `wordpress.js` includes logic to recreate the TOC search box when needed. **Fragment + CSS** is still not enough by itself in WordPress if the host strips embedded `<style>` / `<script>` — use site-level CSS and JS as above.
+The TOC panel is controlled by the site-level JS. With the current `wordpress.js`, the TOC includes search and a **Print / Save PDF** button. That button opens the browser print dialog and uses the app's print CSS so the printed/PDF version drops the TOC/search controls, uses a single content column, repeats table headers, and prints external link targets.
+
+**Important:** WordPress often strips `<input>`, `<style>`, and `<script>` from Custom HTML blocks. The shipped `wordpress.js` includes logic to recreate the TOC search box and print button when needed. **Fragment + CSS** is still not enough by itself in WordPress if the host strips embedded `<style>` / `<script>` — use site-level CSS and JS as above.
 
 ---
 
-## Import & restore (home page)
+## Other paths on the home page
 
-- **2. Start from a saved web page (HTML)** — on the same home page as Word upload: use when you only have an exported `.html` file (not the Word document). You can attach an optional heading map file there too.
-- **Session bundle (.zip)** — farther down the page: restores a full saved **session** you exported earlier (not the same as starting from Word or HTML above).
+- **2. Start from a saved web page (HTML)** — when you only have an exported `.html` file (not the Word document). You can attach an optional heading map there too. Skips the heading-number remap step and goes to reference review.
+- **3. Restore a session bundle (.zip)** — restores a full saved **session** you exported earlier (not the same as starting from Word or HTML). You can also supply a **revised Word document** so reference edits re-attach after an editor round-trip.
 
 ---
 
@@ -108,10 +129,13 @@ Follow the on-screen prompts until you reach the **preview** with export actions
 | Problem | What to try |
 |---------|-------------|
 | App will not start | Install Pandoc; verify `pandoc --version`. |
+| Upload refused for tracked changes | In Word: **Review → Accept → Accept All Changes** (or reject them), save, re-upload. |
 | **405 Method Not Allowed** on convert | Hard refresh or clear cache for this site. |
-| Search / TOC wrong on WordPress | Redeploy the latest **JS** from this app’s export. |
-| No table review | Enable **Open table review before export** **before** uploading. |
-| Heading map ignored | Prefer **file upload** in Advanced; check JSON validity. |
+| Search, TOC, or Print / Save PDF missing on WordPress | Redeploy the latest **JS** from this app’s export. |
+| Need a PDF copy | Use **Print / Save PDF** above the TOC on the published/manual preview page, then choose Save as PDF in the browser print dialog. |
+| No table review mid-flow | Enable **Open table review before export** **before** uploading, or use **Table settings…** on the preview. |
+| Heading map ignored | Prefer **file upload** in the heading-map box; check JSON validity. |
+| Degree / acronym wrongly offered as a cite | Use **Skip linking**. Common dotted degrees are filtered automatically. |
 | Lost in-progress work | Sessions live under the server’s temp folder; OS cleanup can remove them. Use **Export Session Bundle** when you need a backup. |
 
 ---
@@ -142,7 +166,7 @@ The tool can map old-style references to numeric form, for example:
 To run the Flask app on your machine:
 
 1. Install **Python 3.12+** (recommended; matches Docker and typical `lxml` wheels) and **Pandoc**.
-2. Install Python packages from the repo root (includes Flask-WTF, Bleach, Markdown, pytest, etc.):
+2. Install Python packages from the repo root:
 
    ```bash
    pip install -r requirements.txt
@@ -158,7 +182,7 @@ To run the Flask app on your machine:
 
 **Docker:** the project `Dockerfile` installs dependencies and runs the app with Gunicorn; Pandoc is included in the image.
 
-**Environment variables** (optional): `PERSIST_DIR`, `FLASK_SECRET_KEY`, `SESSION_TTL_HOURS`, `LOG_LEVEL` — see the project `README.md` for defaults and meanings.
+**Environment variables** (optional): `PERSIST_DIR`, `FLASK_SECRET_KEY`, `SESSION_TTL_HOURS`, `AUTH_OWNER_*` / `AUTH_USERS`, `LOG_LEVEL` — see the project `README.md` for defaults and meanings.
 
 ---
 
