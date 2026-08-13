@@ -105,9 +105,11 @@ def test_search_fallback_removes_orphan_clear_text():
 
 def test_heading_copy_icon_stays_with_the_last_word():
     start = SOURCE.index("var appendHeadingLinkIcon")
-    body = SOURCE[start:start + 2000]
+    body = SOURCE[start:start + 2600]
     assert "heading-link-cluster" in body
-    assert 'cluster.style.whiteSpace = "nowrap"' in body
+    assert 'cluster.style.setProperty("white-space", "nowrap", "important")' in body
+    assert "window.getComputedStyle" in body
+    assert 'cluster.style.setProperty(prop, headingStyle.getPropertyValue(prop), "important")' in body
     assert "document.createTextNode(match[2])" in body
     assert "cluster.appendChild(icon)" in body
     assert 'this.closest("h1, h2, h3, h4, h5, h6")' in SOURCE

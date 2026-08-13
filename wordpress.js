@@ -356,7 +356,33 @@
         lastText.nodeValue = text.slice(0, match.index) + match[1];
         var cluster = document.createElement("span");
         cluster.className = "heading-link-cluster";
-        cluster.style.whiteSpace = "nowrap";
+        var headingStyle = window.getComputedStyle ? window.getComputedStyle(heading) : null;
+        cluster.style.setProperty("white-space", "nowrap", "important");
+        if (headingStyle) {
+          [
+            "color",
+            "font-family",
+            "font-size",
+            "font-style",
+            "font-weight",
+            "letter-spacing",
+            "line-height"
+          ].forEach(function(prop) {
+            cluster.style.setProperty(prop, headingStyle.getPropertyValue(prop), "important");
+          });
+        } else {
+          [
+            "color",
+            "font-family",
+            "font-size",
+            "font-style",
+            "font-weight",
+            "letter-spacing",
+            "line-height"
+          ].forEach(function(prop) {
+            cluster.style.setProperty(prop, "inherit", "important");
+          });
+        }
         cluster.appendChild(document.createTextNode(match[2]));
         cluster.appendChild(icon);
         if (lastText.parentNode) {
