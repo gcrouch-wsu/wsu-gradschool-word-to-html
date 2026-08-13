@@ -73,7 +73,7 @@ _BLEACH_TAGS = frozenset({
     'a', 'abbr', 'article', 'aside', 'b', 'blockquote', 'br', 'caption', 'cite', 'code', 'col', 'colgroup',
     'dd', 'div', 'dl', 'dt', 'em', 'figcaption', 'figure', 'footer', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'header', 'hr', 'i', 'img', 'li', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'small', 'span', 'strong',
-    'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'u', 'ul',
+    'button', 'input', 'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'u', 'ul',
 })
 _BLEACH_ATTRS = {
     '*': [

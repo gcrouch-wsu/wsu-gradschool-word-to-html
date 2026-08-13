@@ -33,6 +33,35 @@ def test_sanitize_unwraps_underlines_around_links():
     assert '<a href="https://wsu.edu">WSU</a>' in out
 
 
+def test_sanitize_preserves_manual_search_controls():
+    out = sanitize_manual_html_fragment(
+        '<nav class="manual-toc"><div class="manual-search">'
+        '<input type="text" class="manual-search-input" placeholder="Search headings and content..." '
+        'aria-label="Search table of contents" aria-describedby="search-help" role="searchbox">'
+        '<button type="button" class="manual-search-clear" aria-label="Clear search">X</button>'
+        '</div></nav>'
+    )
+    soup = BeautifulSoup(out, "html.parser")
+
+    search = soup.select_one(".manual-search")
+    assert search is not None
+    assert search.select_one("input.manual-search-input[role='searchbox']") is not None
+    clear = search.select_one("button.manual-search-clear")
+    assert clear is not None
+    assert clear.get_text(strip=True) == "X"
+
+
+def test_sanitize_strips_unsafe_control_attributes():
+    out = sanitize_manual_html_fragment(
+        '<input class="manual-search-input" type="text" name="q" value="secret" onclick="evil()">'
+        '<button class="manual-search-clear" type="button" onclick="evil()" data-x="1">X</button>'
+    )
+    assert "onclick" not in out.lower()
+    assert "name=" not in out.lower()
+    assert "value=" not in out.lower()
+    assert "data-x" not in out.lower()
+
+
 def test_manual_grid_block_does_not_nest_document_tags():
     out = build_manual_grid_block(
         "<html><body><h1>Chapter 1</h1><p>Body</p></body></html>",

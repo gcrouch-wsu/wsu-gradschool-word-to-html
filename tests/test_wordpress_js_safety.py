@@ -95,6 +95,14 @@ def test_the_highlighter_builds_elements_rather_than_strings():
     assert "document.createTextNode" in body, "surrounding text must be text nodes"
 
 
+def test_search_fallback_removes_orphan_clear_text():
+    start = SOURCE.index("if (!tocSearch)")
+    body = SOURCE[start:start + 1200]
+    assert "child.nodeType === 3" in body
+    assert 'child.nodeValue.trim() === "X"' in body
+    assert "searchDiv.removeChild(child)" in body
+
+
 @pytest.mark.parametrize("sink", ["insertAdjacentHTML", "outerHTML", "document.write"])
 def test_other_markup_sinks_are_absent(sink):
     """Keep the surface to the one reviewed sink."""

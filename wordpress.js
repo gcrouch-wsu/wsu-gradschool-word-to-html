@@ -233,6 +233,13 @@
           searchDiv.className = "manual-search";
           toc.insertBefore(searchDiv, tocList);
         }
+        for (var child = searchDiv.firstChild; child;) {
+          var nextChild = child.nextSibling;
+          if (child.nodeType === 3 && child.nodeValue && child.nodeValue.trim() === "X") {
+            searchDiv.removeChild(child);
+          }
+          child = nextChild;
+        }
         tocSearch = document.createElement("input");
         tocSearch.type = "text";
         tocSearch.className = "manual-search-input";
