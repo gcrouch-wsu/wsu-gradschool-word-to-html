@@ -59,6 +59,18 @@ def test_healthz_and_login_stay_public(with_auth):
     assert c.get("/login").status_code == 200
 
 
+def test_login_page_has_password_visibility_toggle(with_auth):
+    c = app.test_client()
+    body = c.get("/login").get_data(as_text=True)
+    assert 'id="password-toggle"' in body
+    assert 'aria-controls="password"' in body
+    assert 'aria-label="Show password"' in body
+    assert 'class="icon-eye"' in body
+    assert 'class="icon-eye-off"' in body
+    assert 'password.type = showing ? "password" : "text"' in body
+    assert 'aria-label", showing ? "Show password" : "Hide password"' in body
+
+
 def test_login_success_then_access(with_auth):
     c = app.test_client()
     r = _login(c, A_EMAIL, A_PW)
