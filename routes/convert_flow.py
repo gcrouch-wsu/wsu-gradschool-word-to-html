@@ -1032,6 +1032,7 @@ def review(session_id):
                 "selected_target": selected_target,
                 "current_value": current_value,
                 "external_value": external_value,
+                "has_saved_edit": edit_key in existing_edits,
             })
 
         paragraphs.append({

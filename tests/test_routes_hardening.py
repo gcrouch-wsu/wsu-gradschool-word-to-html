@@ -323,7 +323,7 @@ def test_review_page_renders_all_reference_paragraphs_without_pagination(client_
 
 
 def test_review_page_filters_include_status_categories(client_nocsrf):
-    """Auto-valid rows still need to be visible through Not yet reviewed."""
+    """Auto-valid rows still need to be visible through Needs review."""
     from bs4 import BeautifulSoup
 
     sid = str(uuid.uuid4())
@@ -350,8 +350,10 @@ def test_review_page_filters_include_status_categories(client_nocsrf):
             button.get("data-reference-filter")
             for button in soup.select("[data-reference-filter]")
         }
-        assert {"all", "valid", "skipped", "auto", "unreviewed"} <= filters
+        assert {"all", "ready", "skipped", "auto", "review", "action"} <= filters
         assert "Hide Reviewed Items" not in body
+        assert "Old reference (from text)" not in body
+        assert "DOCX citation text" in body
         item = soup.select_one(".reference-review-item")
         assert item["data-is-valid"] == "true"
         assert item["data-is-auto-matched"] == "true"
