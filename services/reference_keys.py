@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 REFERENCE_EDIT_KEYS = (
     "reference_edits",
     "reference_validations",
+    "reference_reviewed",
     "reference_link_targets",
     "reference_ignored",
     "reference_external_urls",

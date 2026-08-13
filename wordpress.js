@@ -326,6 +326,49 @@
         return null;
       };
 
+      var appendHeadingLinkIcon = function(heading, icon) {
+        var findLastTextNode = function(node) {
+          for (var n = node.childNodes.length - 1; n >= 0; n--) {
+            var child = node.childNodes[n];
+            if (child.nodeType === 3 && /\S/.test(child.nodeValue || "")) {
+              return child;
+            }
+            if (child.nodeType === 1) {
+              if (child.classList && child.classList.contains("heading-link-cluster")) continue;
+              if (child.matches && child.matches("a, button")) continue;
+              var found = findLastTextNode(child);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+        var lastText = findLastTextNode(heading);
+        if (!lastText || (lastText.parentElement && lastText.parentElement.closest("a, button"))) {
+          heading.appendChild(icon);
+          return;
+        }
+        var text = lastText.nodeValue || "";
+        var match = /(\s*)(\S+)(\s*)$/.exec(text);
+        if (!match) {
+          heading.appendChild(icon);
+          return;
+        }
+        lastText.nodeValue = text.slice(0, match.index) + match[1];
+        var cluster = document.createElement("span");
+        cluster.className = "heading-link-cluster";
+        cluster.style.whiteSpace = "nowrap";
+        cluster.appendChild(document.createTextNode(match[2]));
+        cluster.appendChild(icon);
+        if (lastText.parentNode) {
+          lastText.parentNode.insertBefore(cluster, lastText.nextSibling);
+          if (match[3]) {
+            lastText.parentNode.insertBefore(document.createTextNode(match[3]), cluster.nextSibling);
+          }
+        } else {
+          heading.appendChild(cluster);
+        }
+      };
+
       // Process ALL headings for IDs and copy-link functionality
       var allHeadingsData = [];
       for (var i = 0; i < allHeadings.length; i++) {
@@ -359,7 +402,8 @@
           icon.addEventListener("click", function (evt) {
             evt.stopPropagation();
             var host = location.origin || (location.protocol + "//" + location.host);
-            var url = host + location.pathname + "#" + this.parentElement.id;
+            var heading = this.closest("h1, h2, h3, h4, h5, h6") || this.parentElement;
+            var url = host + location.pathname + "#" + heading.id;
             // Fallback for older browsers
             if (navigator.clipboard && navigator.clipboard.writeText) {
               navigator.clipboard.writeText(url).then(function() {
@@ -382,7 +426,7 @@
               document.body.removeChild(tmp);
             }
           });
-          h.appendChild(icon);
+          appendHeadingLinkIcon(h, icon);
         }
       }
 

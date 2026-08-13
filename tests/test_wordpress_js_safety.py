@@ -103,6 +103,16 @@ def test_search_fallback_removes_orphan_clear_text():
     assert "searchDiv.removeChild(child)" in body
 
 
+def test_heading_copy_icon_stays_with_the_last_word():
+    start = SOURCE.index("var appendHeadingLinkIcon")
+    body = SOURCE[start:start + 2000]
+    assert "heading-link-cluster" in body
+    assert 'cluster.style.whiteSpace = "nowrap"' in body
+    assert "document.createTextNode(match[2])" in body
+    assert "cluster.appendChild(icon)" in body
+    assert 'this.closest("h1, h2, h3, h4, h5, h6")' in SOURCE
+
+
 @pytest.mark.parametrize("sink", ["insertAdjacentHTML", "outerHTML", "document.write"])
 def test_other_markup_sinks_are_absent(sink):
     """Keep the surface to the one reviewed sink."""

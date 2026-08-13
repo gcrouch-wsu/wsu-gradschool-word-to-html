@@ -355,7 +355,62 @@ def test_review_page_filters_include_status_categories(client_nocsrf):
         item = soup.select_one(".reference-review-item")
         assert item["data-is-valid"] == "true"
         assert item["data-is-auto-matched"] == "true"
+        assert item["data-is-exact-auto-match"] == "true"
         assert item["data-review-status"] == "unreviewed"
+        assert soup.select_one("input[name^='ref_reviewed_']") is not None
+        assert soup.select_one("#confirmVisibleReviewed") is not None
+        assert soup.select_one("#confirmExactAutoReviewed") is not None
+    finally:
+        shutil.rmtree(session.root, ignore_errors=True)
+
+
+def test_reviewed_status_is_persisted_separately_from_link_decision(client_nocsrf):
+    """Reviewed is a workflow decision; validation still controls output links."""
+    from bs4 import BeautifulSoup
+    from core.docx_processor import generate_stable_ref_id
+
+    sid = str(uuid.uuid4())
+    session = SessionDir(sid, create=True)
+    ref = [0, "See Chapter 1.A here.", "Chapter 1.A", 4, 15, ""]
+    ref_id = generate_stable_ref_id(ref[0], ref[3], ref[2])
+    try:
+        session.session_json.write_text(json.dumps({
+            "references": [ref],
+            "new_headings": {},
+            "auto_crosswalk": {},
+            "approved_crosswalk": {},
+            "manual_type": "chapter",
+            "filename": "x.docx",
+            "mapping_mode": "map_new",
+            "html_import": False,
+        }), encoding="utf-8")
+        r = client_nocsrf.post(f"/review/{sid}", data={
+            "save_edits": "1",
+            "page": "1",
+            f"ref_reviewed_{ref_id}": "1",
+        })
+        assert r.status_code == 302
+        saved = json.loads(session.edits_json.read_text(encoding="utf-8"))
+        assert saved["reference_reviewed"] == {ref_id: True}
+        assert saved["reference_validations"] == {ref_id: False}
+
+        body = client_nocsrf.get(f"/review/{sid}").get_data(as_text=True)
+        soup = BeautifulSoup(body, "html.parser")
+        item = soup.select_one(".reference-review-item")
+        reviewed_box = soup.select_one(f"#ref_reviewed_{ref_id}")
+        valid_box = soup.select_one(f"#ref_valid_{ref_id}")
+        assert item["data-review-status"] == "reviewed"
+        assert reviewed_box.has_attr("checked")
+        assert not valid_box.has_attr("checked")
+
+        r = client_nocsrf.post(f"/review/{sid}", data={
+            "save_edits": "1",
+            "page": "1",
+            f"ref_edit_{ref_id}": "",
+        })
+        assert r.status_code == 302
+        saved = json.loads(session.edits_json.read_text(encoding="utf-8"))
+        assert saved["reference_reviewed"] == {}
     finally:
         shutil.rmtree(session.root, ignore_errors=True)
 

@@ -57,6 +57,9 @@ button:hover { background: #7a1728; }
 .review-filter-controls button:hover { background: #d1d5db; }
 .review-filter-controls button.active { background: #3b82f6; border-color: #2563eb; color: #fff; }
 .review-filter-controls button.active:hover { background: #2563eb; }
+.review-bulk-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.review-bulk-controls button { background: #fff; color: #1e40af; border: 1px solid #93c5fd; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.review-bulk-controls button:hover { background: #eff6ff; }
 .review-indicator { font-size: 12px; font-weight: 600; }
 .filter-empty { display: none; margin-top: 10px; color: #475569; font-style: italic; }
 </style>
@@ -84,7 +87,7 @@ button:hover { background: #7a1728; }
 <strong>Review page:</strong> All reference paragraphs shown ({{ total_paras }} paragraphs)<br>
 <strong>Auto-matched to a heading:</strong> {{ auto_crosswalk_count }}<br>
 <strong>Headings available to link:</strong> {{ headings_count }}<br>
-<strong>Previously saved:</strong> {{ existing_validations_count }} decisions ({{ valid_loaded }} link, {{ invalid_loaded }} not)<br>
+<strong>Previously saved:</strong> {{ existing_reviewed_count }} reviewed; {{ existing_validations_count }} link decisions ({{ valid_loaded }} link, {{ invalid_loaded }} not set to link)<br>
 <strong>Started from HTML:</strong> {{ 'Yes' if html_import else 'No' }}<br>
 {% if html_import %}<strong>Existing links detected:</strong> {{ linked_ref_count }}<br><strong>Rebuild links:</strong> {{ 'Yes' if rebuild_links else 'No' }}{% endif %}
 </div>
@@ -98,6 +101,7 @@ button:hover { background: #7a1728; }
 <li><strong>Create a link:</strong> Check “Create a link for this cite” for real chapter/section references (e.g., "Chapter 1.D" &rarr; "Chapter 1.4")</li>
 <li><strong>Skip non-links:</strong> Use “Skip linking” for text that should not become a link (most degree acronyms are filtered automatically; use Skip for one-offs).</li>
 <li><strong>Edit if needed:</strong> Change the link target or link text when the auto-match is wrong</li>
+<li><strong>Confirm reviewed:</strong> Check “Reviewed” as you verify each cite. Editing a row marks it reviewed automatically; you can still save an incomplete session.</li>
 <li><strong>Save frequently:</strong> Click "Save Edits" to keep your progress</li>
 <li><strong>Filter:</strong> Use the reference filters to focus on valid, skipped, auto-matched, or unfinished rows</li>
 <li><strong>External URLs:</strong> Use the External URL field for links to other manuals or sites</li>
@@ -113,6 +117,10 @@ Only cites with “Create a link” checked become links in the final document.
 <button type="button" data-reference-filter="skipped">Skipped</button>
 <button type="button" data-reference-filter="auto">Auto-matched</button>
 <button type="button" data-reference-filter="unreviewed">Not yet reviewed</button>
+</div>
+<div class="review-bulk-controls" role="group" aria-label="Bulk review actions">
+<button type="button" id="confirmVisibleReviewed">Confirm visible reviewed</button>
+<button type="button" id="confirmExactAutoReviewed">Confirm exact auto-matches</button>
 </div>
 <span id="filterStatus" style="display: inline-block; margin-top: 8px; font-style: italic; color: #1e40af;"></span>
 <div id="filterEmpty" class="filter-empty">No references match this filter.</div>
@@ -159,6 +167,7 @@ Only cites with “Create a link” checked become links in the final document.
              data-old-ref="{{ ref.old_ref }}"
              data-is-ignored="{{ 'true' if ref.is_ignored else 'false' }}"
              data-is-auto-matched="{{ 'true' if ref.auto_match_found else 'false' }}"
+             data-is-exact-auto-match="{{ 'true' if ref.auto_match_exact else 'false' }}"
              data-review-status="{{ ref.review_status }}"
              data-is-valid="{{ 'true' if (ref.is_valid and not ref.is_ignored) else 'false' }}">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -185,6 +194,16 @@ Only cites with “Create a link” checked become links in the final document.
                            value="1"
                            {{ 'checked' if ref.is_ignored }} {{ 'disabled' if ref.is_read_only }}>
                     <span>Skip linking (not a chapter/section cite)</span>
+                </label>
+            </div>
+            <div class="validation-checkbox review-confirm-checkbox" style="background: #f8fafc; border-color: #cbd5e1;">
+                <label>
+                    <input type="checkbox"
+                           name="ref_reviewed_{{ ref.ref_id }}"
+                           id="ref_reviewed_{{ ref.ref_id }}"
+                           value="1"
+                           {{ 'checked' if ref.reviewed }}>
+                    <span>Reviewed</span>
                 </label>
             </div>
             <div class="ref-details">
@@ -359,12 +378,40 @@ window.addEventListener('DOMContentLoaded', function() {
             setReferenceFilter(this.getAttribute('data-reference-filter') || 'all');
         });
     });
+    const confirmVisible = document.getElementById('confirmVisibleReviewed');
+    if (confirmVisible) {
+        confirmVisible.addEventListener('click', function() {
+            document.querySelectorAll('.reference-review-item').forEach(item => {
+                if (item.style.display !== 'none' && (!item.closest('.reference-item') || item.closest('.reference-item').style.display !== 'none')) {
+                    setItemReviewed(item, true);
+                }
+            });
+            refreshReferenceReview();
+        });
+    }
+    const confirmExact = document.getElementById('confirmExactAutoReviewed');
+    if (confirmExact) {
+        confirmExact.addEventListener('click', function() {
+            document.querySelectorAll('.reference-review-item[data-is-exact-auto-match="true"]').forEach(item => {
+                const state = getReferenceState(item);
+                if (!state.skipped) {
+                    const refId = item.getAttribute('data-ref-id') || '';
+                    const validBox = document.getElementById('ref_valid_' + refId);
+                    if (validBox && !validBox.disabled) {
+                        validBox.checked = true;
+                    }
+                    setItemReviewed(item, true);
+                }
+            });
+            refreshReferenceReview();
+        });
+    }
     document.querySelectorAll('.reference-review-item input, .reference-review-item select').forEach(control => {
         const eventName = control.tagName.toLowerCase() === 'input' && control.type === 'text' ? 'input' : 'change';
         control.addEventListener(eventName, function() {
             const item = this.closest('.reference-review-item');
-            if (item) {
-                item.setAttribute('data-client-reviewed', 'true');
+            if (item && !(this.name || '').startsWith('ref_reviewed_')) {
+                setItemReviewed(item, true);
             }
             refreshReferenceReview();
         });
@@ -385,14 +432,23 @@ function getReferenceState(item) {
     const refId = item.getAttribute('data-ref-id') || '';
     const validBox = document.getElementById('ref_valid_' + refId);
     const ignoreBox = document.getElementById('ref_ignore_' + refId);
+    const reviewedBox = document.getElementById('ref_reviewed_' + refId);
     const skipped = ignoreBox ? ignoreBox.checked : item.getAttribute('data-is-ignored') === 'true';
     const validFromDisabled = validBox && validBox.disabled && item.getAttribute('data-is-valid') === 'true';
     const valid = !skipped && Boolean(validBox ? (validBox.checked || validFromDisabled) : item.getAttribute('data-is-valid') === 'true');
     const autoMatched = item.getAttribute('data-is-auto-matched') === 'true'
         || (item.getAttribute('data-auto-target') || '').trim().length > 0;
-    const reviewed = item.getAttribute('data-review-status') === 'reviewed'
-        || item.getAttribute('data-client-reviewed') === 'true';
+    const reviewed = reviewedBox ? reviewedBox.checked : item.getAttribute('data-review-status') === 'reviewed';
     return { valid, skipped, autoMatched, reviewed };
+}
+
+function setItemReviewed(item, reviewed) {
+    const refId = item.getAttribute('data-ref-id') || '';
+    const reviewedBox = document.getElementById('ref_reviewed_' + refId);
+    if (reviewedBox) {
+        reviewedBox.checked = reviewed;
+    }
+    item.setAttribute('data-review-status', reviewed ? 'reviewed' : 'unreviewed');
 }
 
 function syncReferenceState(item) {
@@ -430,8 +486,8 @@ function updateProgressCounter() {
 
     const progressSpan = document.getElementById('reviewProgress');
     progressSpan.innerHTML = `
-        <strong>${counts.reviewed} of ${counts.total} reviewed</strong>
-        (${counts.valid} valid references, ${counts.skipped} skipped, ${counts.auto} auto-matched, ${counts.unreviewed} not yet reviewed)
+        <strong>Reviewed: ${counts.reviewed} of ${counts.total}</strong>
+        (${counts.valid} ready to link, ${counts.skipped} skipped, ${counts.auto} auto-matched, ${counts.unreviewed} needs review)
     `;
     return counts;
 }

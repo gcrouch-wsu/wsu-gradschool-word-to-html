@@ -65,6 +65,7 @@ def test_every_edit_dictionary_is_remapped_together():
     data = {
         "reference_edits": {stored_id: "Section III.C"},
         "reference_validations": {stored_id: True},
+        "reference_reviewed": {stored_id: True},
         "reference_link_targets": {stored_id: "Section III.C - Workload"},
         "reference_ignored": {},
         "reference_external_urls": {stored_id: "https://wsu.edu/x"},
@@ -72,9 +73,9 @@ def test_every_edit_dictionary_is_remapped_together():
     }
     out, moved, _dropped = remap_reference_edits(refs, data)
     new_id = _rid(11, 5, "Section III.C")
-    assert moved == 4
+    assert moved == 5
     for key in ("reference_edits", "reference_validations",
-                "reference_link_targets", "reference_external_urls"):
+                "reference_reviewed", "reference_link_targets", "reference_external_urls"):
         assert list(out[key]) == [new_id], key
     assert out["document"] == "manual.docx", "unrelated keys must survive"
 

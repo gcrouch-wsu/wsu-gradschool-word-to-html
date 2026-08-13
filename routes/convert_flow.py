@@ -221,6 +221,7 @@ def heading_review(session_id):
                 'approved_crosswalk': {},
                 'reference_edits': {},
                 'reference_validations': {},
+                'reference_reviewed': {},
                 'reference_link_targets': {},
                 'reference_ignored': {},
                 'last_updated': str(datetime.now())
@@ -625,6 +626,7 @@ def review(session_id):
         existing_data = load_edits_data(session)
         edits = existing_data.get('reference_edits', {}) or {}
         validations = existing_data.get('reference_validations', {}) or {}
+        reviewed = existing_data.get('reference_reviewed', {}) or {}
         link_targets = existing_data.get('reference_link_targets', {}) or {}
         ignored = existing_data.get('reference_ignored', {}) or {}
         external_urls = existing_data.get('reference_external_urls', {}) or {}
@@ -637,6 +639,9 @@ def review(session_id):
                 all_ref_ids.add(ref_id)
             elif key.startswith('ref_valid_'):
                 ref_id = key.replace('ref_valid_', '')
+                all_ref_ids.add(ref_id)
+            elif key.startswith('ref_reviewed_'):
+                ref_id = key.replace('ref_reviewed_', '')
                 all_ref_ids.add(ref_id)
             elif key.startswith('ref_target_'):
                 ref_id = key.replace('ref_target_', '')
@@ -674,6 +679,11 @@ def review(session_id):
             if is_ignored:
                 is_valid = False
             validations[edit_key] = is_valid
+            is_reviewed = f'ref_reviewed_{ref_id}' in request.form
+            if is_reviewed:
+                reviewed[edit_key] = True
+            elif edit_key in reviewed:
+                reviewed.pop(edit_key, None)
             if is_ignored:
                 ignored[edit_key] = True
             elif edit_key in ignored:
@@ -725,6 +735,7 @@ def review(session_id):
             'approved_crosswalk': approved_crosswalk,
             'reference_edits': edits,
             'reference_validations': validations,
+            'reference_reviewed': reviewed,
             'reference_link_targets': link_targets,
             'reference_ignored': ignored,
             'reference_external_urls': external_urls,
@@ -734,6 +745,7 @@ def review(session_id):
         session_data['approved_crosswalk'] = approved_crosswalk
         session_data['reference_edits'] = edits
         session_data['reference_validations'] = validations
+        session_data['reference_reviewed'] = reviewed
         session_data['reference_link_targets'] = link_targets
         session_data['reference_ignored'] = ignored
         session_data['reference_external_urls'] = external_urls
@@ -741,16 +753,18 @@ def review(session_id):
 
         # Count valid vs invalid references
         valid_count = sum(1 for v in validations.values() if v)
-        invalid_count = sum(1 for v in validations.values() if not v)
+        skipped_count = len(ignored)
+        not_link_count = sum(1 for rid, v in validations.items() if not v and rid not in ignored)
+        reviewed_count = sum(1 for v in reviewed.values() if v)
 
         # Debug: print save location
         logger.debug(f"Saved edits to: {edit_file}")
-        logger.debug(f"Saved data - edits: {len(edits)} entries, validations: {len(validations)} entries ({valid_count} valid, {invalid_count} invalid), link_targets: {len(link_targets)} entries, external_urls: {len(external_urls)} entries")
+        logger.debug(f"Saved data - edits: {len(edits)} entries, validations: {len(validations)} entries ({valid_count} valid, {not_link_count} not link), reviewed: {reviewed_count}, link_targets: {len(link_targets)} entries, external_urls: {len(external_urls)} entries")
         logger.debug(f"Sample validations: {dict(list(validations.items())[:5])}")
 
         flash(
-            f"Edits saved. {valid_count} reference(s) set to link, "
-            f"{invalid_count} skipped. Export a session bundle to share or "
+            f"Edits saved. {reviewed_count} reference(s) reviewed, "
+            f"{valid_count} set to link, {skipped_count} skipped, {not_link_count} not set to link. Export a session bundle to share or "
             "continue on another machine."
         )
         if rejected_external:
@@ -825,6 +839,7 @@ def review(session_id):
         )
     existing_edits = edit_data.get('reference_edits', {})
     existing_validations = edit_data.get('reference_validations', {})
+    existing_reviewed = edit_data.get('reference_reviewed', {})
     existing_link_targets = edit_data.get('reference_link_targets', {})
     existing_ignored = edit_data.get('reference_ignored', {})
     existing_external_urls = edit_data.get('reference_external_urls', {})
@@ -974,30 +989,27 @@ def review(session_id):
                 is_valid = False
             is_linked = bool(html_import and len(ref) > 5 and ref[5])
             is_read_only = bool(is_linked and not rebuild_links)
+            auto_match_exact = False
+            norm_old = normalize_heading_ref(old_ref)
+            if norm_old:
+                norm_old = re.sub(r'^[\(\[]\s*', '', norm_old)
+                norm_old = re.sub(r'\s*[\)\]]$', '', norm_old)
+            norm_new = normalize_heading_ref(auto_matched_new) if auto_matched_new else ''
+            if norm_new:
+                norm_new = re.sub(r'^[\(\[]\s*', '', norm_new)
+                norm_new = re.sub(r'\s*[\)\]]$', '', norm_new)
+            norm_old_no_prefix = re.sub(r'^(Chapter|Section)\s+', '', norm_old or '', flags=re.IGNORECASE)
+            norm_new_no_prefix = re.sub(r'^(Chapter|Section)\s+', '', norm_new or '', flags=re.IGNORECASE)
+            if auto_match_found and norm_old and (norm_old == norm_new or norm_old_no_prefix == norm_new_no_prefix):
+                auto_match_exact = True
             if not has_saved_validation and auto_matched_new and auto_match_found:
-                norm_old = normalize_heading_ref(old_ref)
-                if norm_old:
-                    norm_old = re.sub(r'^[\(\[]\s*', '', norm_old)
-                    norm_old = re.sub(r'\s*[\)\]]$', '', norm_old)
                 if mapping_mode == "keep_old":
-                    norm_new = normalize_heading_ref(auto_matched_new)
-                    if norm_new:
-                        norm_new = re.sub(r'^[\(\[]\s*', '', norm_new)
-                        norm_new = re.sub(r'\s*[\)\]]$', '', norm_new)
-                    norm_old_no_prefix = re.sub(r'^(Chapter|Section)\s+', '', norm_old or '', flags=re.IGNORECASE)
-                    norm_new_no_prefix = re.sub(r'^(Chapter|Section)\s+', '', norm_new or '', flags=re.IGNORECASE)
                     if norm_old and (norm_old == norm_new or norm_old_no_prefix == norm_new_no_prefix):
                         is_valid = True
                 else:
                     is_valid = True
 
-            has_been_reviewed = (
-                edit_key in existing_validations
-                or edit_key in existing_edits
-                or edit_key in existing_link_targets
-                or edit_key in existing_ignored
-                or edit_key in existing_external_urls
-            )
+            has_been_reviewed = bool(existing_reviewed.get(edit_key))
             if is_read_only:
                 has_been_reviewed = True
 
@@ -1007,11 +1019,13 @@ def review(session_id):
                 "full_new_heading": full_new_heading,
                 "auto_target_full": auto_target_full,
                 "auto_match_found": auto_match_found,
+                "auto_match_exact": auto_match_exact,
                 "is_ignored": is_ignored,
                 "is_read_only": is_read_only,
                 "is_valid": is_valid,
                 "checked": bool(is_valid and not is_read_only),
                 "validation_class": "invalid" if is_read_only else ("" if is_valid else "invalid"),
+                "reviewed": has_been_reviewed,
                 "review_status": "reviewed" if has_been_reviewed else "unreviewed",
                 "review_indicator": "✓ Reviewed" if has_been_reviewed else "○ Not reviewed yet",
                 "review_badge_color": "#10b981" if has_been_reviewed else "#9ca3af",
@@ -1030,6 +1044,7 @@ def review(session_id):
 
     valid_loaded = sum(1 for v in existing_validations.values() if v)
     invalid_loaded = sum(1 for v in existing_validations.values() if not v)
+    reviewed_loaded = sum(1 for v in existing_reviewed.values() if v)
 
     return render_template(
         "review.html",
@@ -1045,6 +1060,7 @@ def review(session_id):
         auto_crosswalk_count=len(auto_crosswalk),
         headings_count=len(all_headings),
         existing_validations_count=len(existing_validations),
+        existing_reviewed_count=reviewed_loaded,
         valid_loaded=valid_loaded,
         invalid_loaded=invalid_loaded,
         html_import=html_import,
