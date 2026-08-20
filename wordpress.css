@@ -1159,6 +1159,47 @@ body .manual-grid .manual ul > li::before {
 	   prints anyway. Each group below mirrors the selector of its counterpart
 	   above; do not "simplify" them. */
 
+	body:has(.manual-grid) div.breadcrumbs,
+	body:has(.manual-grid) .breadcrumbs,
+	body:has(.manual-grid) #spine,
+	body:has(.manual-grid) .wsu-header,
+	body:has(.manual-grid) .wsu-site-header,
+	body:has(.manual-grid) .wsu-global-header,
+	body:has(.manual-grid) .wsu-footer,
+	body:has(.manual-grid) .wsu-global-footer,
+	body:has(.manual-grid) .wsu-navigation {
+		display: none !important;
+	}
+
+	body:has(.manual-grid) h1 {
+		font-family: "Source Sans Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+		font-size: 16pt !important;
+		font-weight: 700 !important;
+		line-height: 1.2 !important;
+		letter-spacing: 0 !important;
+		margin: 0 0 12pt !important;
+		padding: 0 !important;
+		color: #000 !important;
+		max-width: none !important;
+	}
+
+	body:has(.manual-grid) .wsu-wrapper-site,
+	body:has(.manual-grid) .wsu-wrapper-global,
+	body:has(.manual-grid) .wsu-wrapper-content,
+	body:has(.manual-grid) .wsu-wrapper-main,
+	body:has(.manual-grid) .wsu-article,
+	body:has(.manual-grid) .wsu-article__content,
+	body:has(.manual-grid) .wsu-article__header,
+	body:has(.manual-grid) .wsu-width--content,
+	body:has(.manual-grid) main,
+	body:has(.manual-grid) article {
+		width: 100% !important;
+		max-width: none !important;
+		padding: 0 !important;
+		margin: 0 !important;
+		float: none !important;
+	}
+
 	/* Interactive chrome has no meaning on paper.
 	   The back-to-top button is an id (#manual-back-to-top, not a class), and
 	   the heading copy-link icon is set to display:inline-flex !important by
@@ -1168,6 +1209,7 @@ body .manual-grid .manual ul > li::before {
 	.manual-grid .manual-search,
 	.manual-grid .manual-search-results,
 	.manual-grid .manual-search-status,
+	.manual-grid .manual-print-button,
 	#manual-back-to-top,
 	.manual .heading-link-icon {
 		display: none !important;
@@ -1199,6 +1241,84 @@ body .manual-grid .manual ul > li::before {
 		max-width: 100% !important;
 		padding: 0 !important;
 		margin: 0 !important;
+		font-family: "Source Sans Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+		font-size: 11pt !important;
+		line-height: 1.4 !important;
+	}
+
+	.manual p,
+	.manual li,
+	.manual td,
+	.manual th,
+	.manual dd,
+	.manual dt {
+		font-family: "Source Sans Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+		font-size: 11pt !important;
+		line-height: 1.4 !important;
+		margin-top: 0 !important;
+		margin-bottom: 0.45em !important;
+	}
+
+	.manual li p {
+		margin-bottom: 0.2em !important;
+	}
+
+	.manual h1,
+	.manual-grid[data-heading-offset="1"] .manual h2,
+	.manual-grid[data-theme="faculty"]:not([data-heading-offset="1"]) .manual h1,
+	.manual-grid[data-theme="faculty"][data-heading-offset="1"] .manual h2 {
+		font-family: "Source Sans Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+		font-size: 13pt !important;
+		font-weight: 700 !important;
+		font-style: normal !important;
+		line-height: 1.3 !important;
+		margin: 16pt 0 8pt !important;
+		color: #000 !important;
+	}
+
+	.manual h2,
+	.manual-grid[data-heading-offset="1"] .manual h3,
+	.manual-grid[data-theme="faculty"]:not([data-heading-offset="1"]) .manual h2,
+	.manual-grid[data-theme="faculty"][data-heading-offset="1"] .manual h3 {
+		font-family: "Source Sans Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+		font-size: 12pt !important;
+		font-weight: 700 !important;
+		font-style: normal !important;
+		line-height: 1.3 !important;
+		margin: 12pt 0 4pt !important;
+		color: #000 !important;
+	}
+
+	.manual h3,
+	.manual-grid[data-heading-offset="1"] .manual h4,
+	.manual-grid[data-theme="faculty"]:not([data-heading-offset="1"]) .manual h3,
+	.manual-grid[data-theme="faculty"][data-heading-offset="1"] .manual h4 {
+		font-family: "Source Sans Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+		font-size: 11pt !important;
+		font-weight: 700 !important;
+		font-style: normal !important;
+		line-height: 1.3 !important;
+		margin: 10pt 0 4pt !important;
+		color: #000 !important;
+	}
+
+	.manual h4,
+	.manual h5,
+	.manual h6,
+	.manual-grid[data-heading-offset="1"] .manual h5,
+	.manual-grid[data-heading-offset="1"] .manual h6,
+	.manual-grid[data-theme="faculty"]:not([data-heading-offset="1"]) .manual h4,
+	.manual-grid[data-theme="faculty"]:not([data-heading-offset="1"]) .manual h5,
+	.manual-grid[data-theme="faculty"]:not([data-heading-offset="1"]) .manual h6,
+	.manual-grid[data-theme="faculty"][data-heading-offset="1"] .manual h5,
+	.manual-grid[data-theme="faculty"][data-heading-offset="1"] .manual h6 {
+		font-family: "Source Sans Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+		font-size: 11pt !important;
+		font-weight: 700 !important;
+		font-style: normal !important;
+		line-height: 1.3 !important;
+		margin: 8pt 0 4pt !important;
+		color: #000 !important;
 	}
 
 	/* Ink-friendly and higher contrast than screen crimson on white */
@@ -1257,26 +1377,29 @@ body .manual-grid .manual ul > li::before {
 		widows: 2 !important;
 	}
 
-	/* Links: ONE underline. `.manual a` above draws its underline with
-	   `border-bottom` and sets `text-decoration: none`; adding
-	   `text-decoration: underline` here stacked a second line on top of it and
-	   printed every link double-underlined. Keep the border as the single
-	   underline and take it to black so a greyscale print does not render
-	   crimson links as washed-out grey. Same specificity as the rule above, and
-	   later in the file, so this wins. */
 	.manual a {
 		color: #000 !important;
+		font-family: inherit !important;
+		font-size: inherit !important;
+		font-weight: inherit !important;
 		text-decoration: none !important;
-		border-bottom: 1px solid #000 !important;
+		border-bottom: none !important;
 	}
 
-	/* Spell out external targets; internal #anchors would print as meaningless
-	   fragments, so only expand absolute URLs. */
+	.manual a[href^="http"] {
+		text-decoration: underline !important;
+		text-underline-offset: 2px !important;
+	}
 
-	.manual a[href^="http"]::after {
-		content: " (" attr(href) ")";
-		font-size: 90%;
-		word-break: break-all;
+	.manual .heading-link-cluster {
+		font: inherit !important;
+		font-size: inherit !important;
+		font-family: inherit !important;
+		font-weight: inherit !important;
+		color: inherit !important;
+		letter-spacing: inherit !important;
+		line-height: inherit !important;
+		white-space: normal !important;
 	}
 
 	@page {

@@ -771,8 +771,9 @@ _CHAPTER_WORDS = (
     "Thirteen|Fourteen|Fifteen|Sixteen|Seventeen|Eighteen|Nineteen|Twenty"
 )
 # Deliberately extends the canonical core/html_processor._HEADING_PREFIX_RE:
-# the generator also strips spelled-out chapter words ("Chapter One") and
-# bare letter prefixes without dots ("A Title") for its style previews.
+# spelled-out Chapter/Section words ("Chapter One") are shared with the
+# pipeline copies; the remaining generator-only difference is bare letter
+# prefixes without dots ("A Title") for style previews.
 _HEADING_PREFIX_RE = re.compile(
     r"^\s*(?:"
     r"(?i:(?:Chapter|Section))\s+(?:[IVXLCDM\d]+|(?:" + _CHAPTER_WORDS + r"))(?:\.[A-Z\d]+)*(?:\s*[:.–—\-])?\s+|"

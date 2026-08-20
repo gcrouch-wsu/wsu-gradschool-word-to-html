@@ -3,8 +3,8 @@
 The companion config generator used to carry drifted copies of ~10 helpers.
 These tests assert it now shares the canonical implementations, so the two
 apps cannot diverge again, and pin the behavior of the helpers it keeps
-deliberately (its heading-prefix regex strips spelled-out chapter words,
-which the pipeline's canonical regex does not).
+deliberately (its heading-prefix regex still strips bare letter prefixes
+such as "A Title", which the pipeline copies do not).
 """
 import core.docx_processor as dp
 import docx_config_generator as g
@@ -22,9 +22,9 @@ def test_generator_uses_canonical_implementations():
 
 
 def test_generator_prefix_strip_handles_all_separators():
-    # The generator regex deliberately extends the canonical one with
-    # spelled-out chapter words; the separator class must match it (en/em
-    # dashes must be present in the separator class).
+    # The generator regex still extends the canonical one with bare letter
+    # prefixes; spelled-out chapter words and separators must match the
+    # pipeline copies (en/em dashes must be present in the separator class).
     assert g._strip_heading_prefix_for_preview("Chapter One – Title") == "Title"
     assert g._strip_heading_prefix_for_preview("Chapter 2 — Overview") == "Overview"
     assert g._strip_heading_prefix_for_preview("Chapter 2 - Overview") == "Overview"

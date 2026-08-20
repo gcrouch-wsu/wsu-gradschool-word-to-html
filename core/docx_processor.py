@@ -380,10 +380,16 @@ def _normalized(s: str) -> str:
     """Normalize whitespace and remove zero-width characters."""
     return ''.join(_norm_char(c) for c in s)
 
+_CHAPTER_WORDS = (
+    "One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|Eleven|Twelve|"
+    "Thirteen|Fourteen|Fifteen|Sixteen|Seventeen|Eighteen|Nineteen|Twenty"
+)
 _HEADING_PREFIX_RE = re.compile(
     r"^\s*(?:"
-    # Section/Chapter with multi-level numbering: Section I.1 | Section I.A.2 | Chapter 1.2.3
-    r"(?i:(?:Chapter|Section))\s+[IVXLCDM\d]+(?:\.[A-Z\d]+)*(?:\s*[:.\u2013\u2014\-])?\s+|"
+    # Section/Chapter with multi-level numbering: Section I.1 | Section I.A.2 |
+    # Chapter 1.2.3 | spelled-out Chapter One / Section One (css-counters strip).
+    # Do not add the generator's bare-letter alternative ("A Title").
+    r"(?i:(?:Chapter|Section))\s+(?:[IVXLCDM\d]+|(?:" + _CHAPTER_WORDS + r"))(?:\.[A-Z\d]+)*(?:\s*[:.\u2013\u2014\-])?\s+|"
     r"(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})(?:[.\s]+(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})){1,5}\.?\s+(?:[:.\u2013\u2014\-]\s*)?|"
     r"(?i:[IVXLCDM]+)\.(?:[A-Z]{1,3}|[a-z]{1,3})(?:\.\d+){0,3}\.?\s+(?:[:.\u2013\u2014\-]\s*)?|"  # I.A. | I.AA.2. | I.A.2.1. : (requires space after)
     r"(?i:[IVXLCDM]+)(?:\.\d+){0,3}\.?\s+(?:[:.\u2013\u2014\-]\s*)?|"         # II.3. | IV.2.1. (requires space after)

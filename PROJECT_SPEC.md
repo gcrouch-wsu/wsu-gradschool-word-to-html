@@ -475,10 +475,12 @@ described error (`_describe_config_shape_problem`) rather than a 500;
 `empty_analysis()` supplies the structure the template requires.
 
 It deliberately keeps a few generator-specific helpers (e.g. a `_HEADING_PREFIX_RE`
-that additionally strips spelled-out chapter words like "Chapter One" for style
-previews; preview-only prefix helpers). The three `_HEADING_PREFIX_RE` copies
-(html_processor, docx_processor, generator) are pinned by a parity test;
-html_processor and docx_processor are behaviorally identical.
+that additionally strips bare letter prefixes like "A Title" for style previews;
+preview-only prefix helpers). The three `_HEADING_PREFIX_RE` copies
+(html_processor, docx_processor, generator) are pinned by a parity test.
+html_processor and docx_processor are behaviorally identical, including
+spelled-out Chapter/Section words (One–Twenty). The remaining generator-only
+difference is the bare-letter prefix.
 
 ---
 
@@ -504,7 +506,7 @@ html_processor and docx_processor are behaviorally identical.
 
 ## 13. Testing
 
-`python -m pytest tests/ -q` — **319 tests.** Runtime deps in
+`python -m pytest tests/ -q` — **370 tests.** Runtime deps in
 `requirements.txt`; test deps add `pytest` via `requirements-dev.txt`. CI
 (`.github/workflows/ci.yml`) installs the pinned Pandoc and the ranged
 requirements and runs the suite on every push to `main` and every PR.
@@ -639,6 +641,26 @@ version matches `PANDOC_PINNED_VERSION` (no "older than pinned" warning);
   system fills bare `th` crimson → 4.21:1, below AA). Do not remove the explicit
   `background-color` on `.manual table thead th` without also relaxing the
   colour forcing above it.
+- **Browser Print / Save as PDF is the paper path** until (if ever) §21 item 0
+  ships. `wordpress.css` `@media print` hides TOC, search, skip link, print
+  button, copy-link icons, and WSU chrome on pages that contain `.manual-grid`
+  (breadcrumbs, site header/footer/nav — not `header` wholesale, because the
+  WordPress page H1 lives there). It forces the Design System content well
+  (`.wsu-wrapper-content` and related wrappers) to full printable width, sets
+  ~11pt body / stepped heading sizes, underlines external `http(s)` links, and
+  does **not** dump `attr(href)` after them. Headings use `break-inside` /
+  `break-after: avoid` only — **no** `break-before: page` on H2 or offset-1 H2
+  (that was an earlier print experiment; do not restore it). `@page` is
+  `0.75in`; Chromium still mostly honors the print-dialog margins.
+- **Heading last-word wrap must inherit type, not stamp screen pixels.**
+  `wordpress.js` keeps the last heading word and copy-link icon in
+  `.heading-link-cluster` with `white-space:nowrap` and `font*`/`color` set to
+  `inherit !important`. Copying `getComputedStyle` px onto the span made print
+  CSS unable to shrink headings. Do not restore computed-size stamping.
+- **Table footnote markers stay with the preceding word.** `wordpress.js`
+  replaces trailing spaces before `th`/`td` `<sup>` with a non-breaking space.
+  Do not wrap that word in a span — table `th` is bold and an inner span dropped
+  to regular weight.
 
 ### Future candidates (none urgent, nothing blocking)
 
@@ -1216,7 +1238,8 @@ scratch notes (`build_list.md`, `must_fix.md`) removed. Recorded here so they
 are not rediscovered as open defects:
 
 - Manual type from headings + upload override; no POLICY/PROCEDURE keyword flip.
-- Degree-acronym denylist at reference extraction.
+- Degree-acronym denylist at reference extraction (code defaults today; editable
+  app/session list is under **Possible builds** below).
 - Crosswalk L1 decimal parity with CSS; decimal-aware `guess_heading_level`.
 - Landing / review / download / table-preview clarity; mapping vs preserve UX;
   advanced options exposed; theme form on preview; session-retention notes;
@@ -1224,7 +1247,241 @@ are not rediscovered as open defects:
 - **Not done (deferred):** in-app user management — accounts remain env-only
   (`AUTH_OWNER_*` / `AUTH_USERS`); see Architecture below.
 
+### Closed this cycle (2026-08-20)
+
+- Pipeline `_HEADING_PREFIX_RE` (html_processor + docx_processor) strips
+  spelled-out Chapter/Section words One–Twenty when preserve is off, matching
+  the config generator's first alternative. Bare `A Title` stays generator-only.
+  `css-counters` no longer double-labels `Chapter 1. Chapter One Title`.
+  Preserve + inference-off heading text is unchanged. First `css-counters`
+  rebuild: permalink map keys off the **post-strip** signature.
+
 ### Open work, in the order it is worth doing
+
+0. **Server-side accessible PDF export (planned dev-branch build).**
+   Current PDFs are browser "Print / Save as PDF" output from the WordPress page:
+   `wordpress.js` calls `window.print()` and `wordpress.css` hides the sidebar
+   TOC in `@media print`. That is useful as a fallback, but it keeps the output
+   visually tied to the webpage and cannot reliably provide a polished,
+   clickable, page-numbered TOC. The product goal is to stop maintaining a
+   second hand-made Word/PDF version and generate the publication PDF from the
+   same reviewed conversion session.
+
+   **Prototype branch:** `dev/pdf-export-weasyprint`.
+
+   **Primary engine for the prototype:** pin **`weasyprint>=69,<70`**. 68 fixed
+   CVE-2025-68616 (SSRF via redirects in `default_url_fetcher`). 69 is the floor
+   because of CVE-2026-49452 (CSS injection through HTML presentational hints
+   when rendering untrusted/manual-derived HTML). Do not leave room for 68.x
+   plus `presentational_hints=True`. Docs:
+   - https://doc.courtbouillon.org/weasyprint/stable/changelog.html
+   - https://doc.courtbouillon.org/weasyprint/stable/manpage.html
+   - https://doc.courtbouillon.org/weasyprint/stable/api_reference.html
+   - https://doc.courtbouillon.org/weasyprint/stable/common_use_cases.html
+
+   **Fallback / benchmark:** PrinceXML. Strongest HTML/CSS paged-media engine
+   for book-like PDFs, with explicit PDF/UA/tagged PDF controls, but commercial.
+   Named prototype **exit**: if WeasyPrint cannot produce an acceptable
+   page-numbered TOC, tagged tables, or table pagination after one honest pass,
+   stop and compare Prince before accumulating CSS workarounds.
+   - https://www.princexml.com/doc/prince-output/
+
+   **Deliberately not first:** Playwright/Chromium PDF. It is the current
+   browser print path with a new binary. Less control over page-numbered TOCs
+   and paged-media publishing features.
+   - https://playwright.dev/docs/api/class-page#page-pdf
+
+   **Out of product scope for this build:**
+   - Do not change `wordpress.js` to fetch `/download/.../pdf` from the published
+     WordPress site. The live page has no converter session. Keep
+     `window.print()` as the on-page fallback until (if ever) a static PDF is
+     hosted with the manual.
+   - Do not design for Vercel/serverless. Deploy contract is Docker/Railway
+     (§14). Native Pango/Cairo does not belong on that path.
+
+   **Hard rules (from plan review — do not rediscover as bugs):**
+
+   1. **Bake heading numbers into the PDF DOM. Never apply CSS heading
+      counters.** On the WordPress page, numbers often live in
+      `.manual-grid[data-numbering-mode="css-counters"] hN::before`. PDF
+      bookmarks, tagged headings, and TOC text frequently omit generated
+      `::before` content, so the outline would say "Overview" while the page
+      says "Chapter 1. Overview". If you bake *and* keep those counters you get
+      "Chapter 1. Chapter 1 - …". Do **not** call `apply_css_counter_numbering`
+      for this: it assigns `h.string = new` and can drop inline markup inside
+      headings, and it is keyed to live heading levels while WordPress
+      fragments later shift levels. Use a **PDF-owned bake helper** that
+      prepends a text node/span without replacing heading children, honors
+      `numbering_mode` / `preserve` / `keep_old` / chapter vs section, and
+      runs only against the **unshifted** session body
+      (`{token}_manual.html` or equivalent). `pdf.css` must not use
+      `h1`–`h6::before` counters. Fixtures: preserve, keep_old, css-counters,
+      chapter/section, inline heading markup. A fixture must fail if a
+      heading matches `Chapter \d+. Chapter`.
+   2. **Deny-all URL fetcher. `presentational_hints=False`.** WeasyPrint
+      fetches stylesheets, fonts, images, and attachments by default. Pass a
+      custom fetcher (WeasyPrint 69 `URLFetcher`, `allow_redirects=False`)
+      that allows nothing except what the builder itself embeds (`data:`
+      fonts if used). **Never delegate blocked URLs to WeasyPrint’s default
+      fetcher.** No `http(s)`, no `file:` outside the session root, no cloud
+      metadata IPs. Do not enable HTML presentational hints for tables or
+      lists (`presentational_hints=False` always — CVE-2026-49452). External
+      manual `<a href="https://…">` links must remain **PDF link
+      annotations**, not network fetches. Tests must prove
+      `<img src="http://127.0.0.1/…">` and a redirect URL are not retrieved.
+   3. **Do not wrap `build_manual_grid_block`.** That helper injects skip-link,
+      search, and a JS TOC. PDF HTML is a new document: `<!doctype html>`,
+      `<html lang="en">`, `<title>`, metadata, cover/title page,
+      `<nav aria-label="Table of contents" class="pdf-toc">`, `<main>`. No
+      `<script>`, no `.manual-search`, no `.manual-grid` chrome. Do **not**
+      reuse `generate_server_side_toc`: it always emits `toc-collapsed` and
+      is a web nav tree. Add `generate_pdf_toc` (or a `mode="pdf"` option)
+      that emits static links, page-number spans/leaders via
+      `target-counter`, no collapse/search classes, and verified `#`
+      destinations after numbers are baked.
+   4. **Trusted body source.** Read the processed manual HTML `do_convert`
+      already wrote, resolved only via `SessionDir` (same containment as other
+      artifacts). Do **not** open `meta["manual_content_path"]` or any other
+      attacker-influenceable path from `{token}_meta.json`.
+   5. **`pdf.css` is the only layout stylesheet.** Do not feed `wordpress.css`
+      or `get_wp_css_text()` into WeasyPrint — those rules exist to beat the
+      WSU theme (`!important`, grid, `@media print`). Pull **values** from
+      `theme_settings` (crimson, fonts, sizes), not the site sheet. Optional:
+      print the destination after external links (browser print CSS no longer
+      does this).
+   6. **PDF/UA is an attempt, not a hard fail.** Call `pdf_tags=True` and try
+      `pdf_variant="pdf/ua-1"`. If that raises or yields a broken file, write
+      tagged PDF without the variant and log it. UI label: "Accessible tagged
+      PDF (beta)" / "Download PDF (beta)". Never "PDF/UA certified" or WCAG
+      certified from code. `/MarkInfo` in pypdf is a smoke check, not PAC.
+   7. **Do not SIGKILL Gunicorn.** Faculty conversion already needed
+      `--timeout 120`. A 297-heading tagged PDF is another full layout pass.
+      Use a **separate `pdf_cache_key`**, stored beside `{token}_manual.pdf`,
+      and regenerate on mismatch. The key must include: `_preview_cache_key`
+      (covers source, review settings, theme, WordPress CSS/JS hashes),
+      `pdf.css` hash, a version constant in `core/pdf_export.py`, WeasyPrint
+      `__version__`, PDF options (`pdf_tags`, `pdf_variant`), and a
+      font/runtime marker (so Docker font or native-lib changes bust the
+      cache). Theme updates already flow through `do_convert`. Raise the
+      worker timeout and/or write `{token}_manual.pdf` during convert so the
+      first download is a stream. Missing WeasyPrint or native libs → flash +
+      redirect, never a 500 that kills the worker.
+   8. **Table pagination is the likely WeasyPrint fail.** Preserve `<thead>`,
+      `scope`, and Table Review settings. Repeat headers
+      (`thead { display: table-header-group }`). One synthetic multi-page
+      table fixture is in-repo; GSPP/Faculty table pages are a local gate. If
+      cells clip or tags drop, take the Prince exit rather than CSS hacks.
+   9. **Image parity is the HTML pipeline, including current stripping.**
+      `process_html_pipeline` calls `strip_images_and_figures`; the PDF uses
+      that same processed body. Beta PDF is **not** a pixel-faithful Word
+      replacement for figures. Document this as a known limitation. Do not
+      re-introduce images in the PDF path until there is a separate,
+      fetcher-safe image-preservation design with `alt` text.
+
+   **Build shape:**
+   - New download kind `/download/<uuid:session_id>/<uuid:token>/pdf` and a
+     preview button "Download PDF (beta)" until validated. Same UUID, auth,
+     and `session_owner_ok` as other kinds. Do not change the eight existing
+     kinds (fragment, fragment+CSS, standalone, CSS, CSS base, JS, DOCX,
+     heading-map) or session-bundle export.
+   - Module `core/pdf_export.py` plus `pdf.css` (or a builder-owned CSS
+     string). Dockerfile: Pango/Cairo/GLib and a metric-compatible font set
+     (e.g. fonts-liberation). Pin `weasyprint>=69,<70` in `requirements.txt`
+     and regenerate `requirements.lock.txt`. Always pass
+     `presentational_hints=False`.
+   - TOC: real internal links (`href="#…"`) with
+     `target-counter(attr(href), page)` and dotted leaders. Bookmarks from the
+     heading hierarchy using the **baked** heading text (numbers included).
+     Suppress decorative cover/title headings from the outline if they make it
+     noisy.
+   - Internal body links navigate inside the PDF; external links stay
+     clickable URL annotations.
+   - Windows local: document GTK/Pango install or skip PDF tests with a clear
+     message. CI: Ubuntu with WeasyPrint **required**, not skip-if-missing.
+     Feature stays beta until Docker/Railway boots with native libs.
+
+   **PDF design target:**
+   - Policy manual, not a captured webpage: cover page, 10.5–11.5 pt body,
+     controlled line length, strong but not oversized heading hierarchy,
+     restrained WSU crimson for section titles, running footer with page
+     number, tables tuned for paper.
+   - Page breaks before major chapters only when it helps; no extra blank
+     pages in short manuals.
+
+   **Accessibility target and limits:**
+   - Minimum in-repo smoke: tagged PDF, structure tree, document language,
+     title metadata, heading/list/table/link structure, logical source order.
+   - Do not claim full WCAG/PDF-UA from code. WeasyPrint is explicit that
+     valid PDF/UA depends on HTML structure and content. PAC/CommonLook/
+     Acrobat on a **local** non-confidential or approved copy is a release
+     gate. Do not upload live WSU policy/manual content to third-party
+     validators.
+
+   **Tests and verification:**
+   - Unit-test the PDF HTML builder: `lang`, title, baked numbers (preserve,
+     keep_old, css-counters, chapter/section, inline heading markup), TOC
+     link count and targets matching heading ids, bookmark labels equal body
+     heading text (including numbers), no `<script>`, no search/sidebar, no
+     `toc-collapsed`, no `Chapter N. Chapter` doubles, stable anchors.
+   - Fetcher isolation tests (localhost, file:, redirect; blocked URLs must
+     not call the default fetcher). Confirm `presentational_hints` is off.
+   - Route-test `kind=pdf`: auth/owner, UUID, no out-of-session reads, MIME/
+     filename, missing-engine flash, `pdf_cache_key` hit vs regenerate.
+   - CI: synthetic PDF via WeasyPrint; inspect with `pypdf` for `/MarkInfo`,
+     `/StructTreeRoot`, `/Outlines`, internal/external link annotations,
+     title, page count. Smoke only.
+   - Local: Poppler (`pdftoppm`) on title, TOC, first content, a table page,
+     a deep heading. Then GSPP and Faculty Manual before acceptance:
+     clickable numbered TOC, useful outline, readable layout, no WordPress
+     chrome, no clip/overlap, no broken tables, no regression of HTML/CSS/JS
+     downloads.
+
+   **Independent review prompt for this build:**
+
+   ```text
+   You are reviewing the dev branch `dev/pdf-export-weasyprint` of the WSU
+   Manual Converter. The goal is a server-side, readable, accessible PDF
+   export that replaces the current manual Word-to-PDF step. Do not treat the
+   shipped tests as proof; review the implementation and verify the generated
+   artifact. The authoritative plan is PROJECT_SPEC.md §21 item 0, including
+   the hard rules.
+
+   Review focus:
+   1. Engine: weasyprint>=69,<70, presentational_hints=False, deny-all
+      fetcher that never delegates blocked URLs to the default fetcher,
+      graceful missing-engine behavior, Docker native libs, Gunicorn
+      timeout / pdf_cache_key so the worker is not SIGKILL'd.
+   2. Numbering: PDF-owned bake helper (not apply_css_counter_numbering);
+      unshifted body; inline heading markup preserved; pdf.css has no
+      heading ::before counters; bookmarks and TOC labels match body
+      numbers; no "Chapter N. Chapter" doubles.
+   3. Security/session: /download/<session>/<token>/pdf uses SessionDir
+      artifacts only (not meta paths), same auth/owner/UUID invariants.
+      Fetcher never hits the network or file: outside the session.
+   4. Content parity: same reviewed body (including current image/figure
+      stripping), stable heading IDs, reference edits, table settings;
+      theme *values* only (not wordpress.css). PDF HTML is not
+      build_manual_grid_block. TOC is generate_pdf_toc, not the web helper.
+   5. Accessibility: lang/title/source order; tags; structure tree;
+      bookmarks; clickable internal/external links. Flag any overclaim of
+      PDF/UA or WCAG. Confirm UA-1 failure falls back to tagged PDF.
+   6. Layout: render cover, TOC (page numbers + leaders), first content,
+      tables, long lists, deep headings. No webpage chrome, clip, or
+      overlap.
+   7. Regression: fragment, fragment+CSS, standalone, CSS, CSS base, JS,
+      DOCX, heading-map, and session-bundle still behave as before.
+
+   Expected review output:
+   - Findings first, ordered by severity, with file:line references.
+   - Verification commands run and their relevant results.
+   - Residual risks (PDF/UA validation, table pagination, deploy deps).
+   - If no blocking findings remain, say so and name remaining manual PAC
+     validation before production.
+
+   Do not upload confidential WSU manual content to any external service.
+   Use local tools or synthetic fixtures unless the user approves another
+   path.
+   ```
 
 1. **A golden regression suite over real content.** The largest undocumented
    risk in the project, and both reviewers independently landed on it. Tests
@@ -1247,11 +1504,51 @@ are not rediscovered as open defects:
 3. **Consolidate the duplicated parsing.** `generate_stable_ref_id` exists in
    two modules and `_HEADING_PREFIX_RE` in three. Parity tests pin them, which
    catches drift but does not prevent it, and a reader has to check three places
-   to know what the rule is.
+   to know what the rule is. Closing the spelled-out-word gap did not merge
+   the three regexes; do not treat that as license to consolidate them in the
+   same change.
 4. **`#manual-back-to-top` site-wide ID selectors.** Same class of leak as the
    two `.manual-toc` rules already scoped, rated lower risk because an id
    collision is less likely than a class collision. Unfinished, not dismissed.
 5. **Unused imports and locals** reported by pyflakes.
+
+### Possible builds (not scheduled)
+
+Ideas that fit the product but are not committed work yet. Capture shape here
+so they are not rediscovered as vague “someone should…” notes.
+
+1. **Configurable non-reference ignore list (app defaults + session).** Degree /
+   credential tokens such as `D.V.M.` / `D.N.P.` are filtered today by a
+   hard-coded regex plus a bare letter-dotted safety net in
+   `core/reference_linking.py`. Operators cannot add or remove entries without
+   a code change. A better shape:
+   - **Shipped defaults** for common degrees (keep the automatic
+     letter-only-dotted, no-digits rule as a safety net).
+   - **Optional app-level defaults** (env or config file shared by all
+     sessions).
+   - **Session overrides** (add/remove for this conversion), stored in
+     `session.json` and carried in the session bundle so import restores them.
+   - **Review UI** entry points (“Ignore for this session” / promote to
+     defaults) so people are not editing regex.
+   Normalize matching (`D.V.M.` vs `DVM`); do not let free-text ignores swallow
+   real cites. Until this ships, one-offs use **Skip linking** on reference
+   review.
+2. **Runtime link-target control in `wordpress.js`.** Today the converter emits
+   external links with `target="_blank"` and internal fragment links without a
+   target. That keeps current output predictable, but the eventual UX goal is
+   for the person doing the conversion to control external-link behavior during
+   reference review instead of inheriting it from the DOCX or accepting a single
+   hard-coded export rule. Future shape:
+   - Store an explicit per-reference target policy for external links
+     (new tab / same tab) while keeping in-page `#anchor` links same-page.
+   - Teach `wordpress.js` to enforce that policy at runtime for pasted HTML
+     fragments, because the site workflow depends on the fragment plus shared
+     site JS/CSS rather than standalone HTML.
+   - Do not let Word-originated hyperlink target settings decide final behavior;
+     the DOCX supplies the URL, while the review UI supplies the publishing
+     choice.
+   - Preserve the current safe default until the review UI and exported session
+     data can represent the decision explicitly.
 
 ### Architecture, deferred deliberately
 
@@ -1281,7 +1578,7 @@ These are not style preferences. Each one cost real rework in this project.
   absorption fixed in one branch still missed `RCW Chapter 42.52`.
 - **Nothing here tests behaviour in a browser.** `wordpress.js` has a source
   scan and no runtime test at all. A change that made search safe *and useless*
-  would pass all 319 tests. Until there is a browser harness, JS changes need a
+  would pass all 370 tests. Until there is a browser harness, JS changes need a
   human or an external agent to open the page.
 - **Ids are positional, so a matching id is not proof of identity.** The
   reference-key remapping learned this the expensive way (§20, round 1). Any new

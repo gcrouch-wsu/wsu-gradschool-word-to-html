@@ -225,6 +225,14 @@
 
       normalizeListStyles(manual);
 
+      var tableSups = manual.querySelectorAll("th sup, td sup");
+      for (var ts = 0; ts < tableSups.length; ts++) {
+        var prevSupText = tableSups[ts].previousSibling;
+        if (prevSupText && prevSupText.nodeType === 3) {
+          prevSupText.nodeValue = (prevSupText.nodeValue || "").replace(/\s+$/, "\u00A0");
+        }
+      }
+
       // Force list styles (Standard, Non-Nuclear)
       function forceListStyles() {
         // Force list types - ONLY use list-style-type, not shorthand
@@ -403,33 +411,15 @@
         lastText.nodeValue = text.slice(0, match.index) + match[1];
         var cluster = document.createElement("span");
         cluster.className = "heading-link-cluster";
-        var headingStyle = window.getComputedStyle ? window.getComputedStyle(heading) : null;
         cluster.style.setProperty("white-space", "nowrap", "important");
-        if (headingStyle) {
-          [
-            "color",
-            "font-family",
-            "font-size",
-            "font-style",
-            "font-weight",
-            "letter-spacing",
-            "line-height"
-          ].forEach(function(prop) {
-            cluster.style.setProperty(prop, headingStyle.getPropertyValue(prop), "important");
-          });
-        } else {
-          [
-            "color",
-            "font-family",
-            "font-size",
-            "font-style",
-            "font-weight",
-            "letter-spacing",
-            "line-height"
-          ].forEach(function(prop) {
-            cluster.style.setProperty(prop, "inherit", "important");
-          });
-        }
+        cluster.style.setProperty("font", "inherit", "important");
+        cluster.style.setProperty("font-size", "inherit", "important");
+        cluster.style.setProperty("font-family", "inherit", "important");
+        cluster.style.setProperty("font-weight", "inherit", "important");
+        cluster.style.setProperty("font-style", "inherit", "important");
+        cluster.style.setProperty("letter-spacing", "inherit", "important");
+        cluster.style.setProperty("line-height", "inherit", "important");
+        cluster.style.setProperty("color", "inherit", "important");
         cluster.appendChild(document.createTextNode(match[2]));
         cluster.appendChild(icon);
         if (lastText.parentNode) {

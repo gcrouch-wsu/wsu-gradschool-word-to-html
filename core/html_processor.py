@@ -155,9 +155,16 @@ def _unwrap_underlines_touching_links(soup: BeautifulSoup) -> None:
 # IMPORTANT: Must require whitespace after the prefix so "I.A.3.Duties" is not
 # consumed as "I.A.3.D"; the trailing separator class includes en/em dashes
 # (–, —) so "Chapter 2 – Title" strips cleanly.
+# Spelled-out One–Twenty belong only on the Chapter/Section branch (css-counters
+# otherwise prints "Chapter 1. Chapter One Title"). Do not add the generator's
+# bare-letter alternative ("A Title"); pipeline copies still require "A. Title".
+_CHAPTER_WORDS = (
+    "One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|Eleven|Twelve|"
+    "Thirteen|Fourteen|Fifteen|Sixteen|Seventeen|Eighteen|Nineteen|Twenty"
+)
 _HEADING_PREFIX_RE = re.compile(
     r"^\s*(?:"
-    r"(?i:(?:Chapter|Section))\s+[IVXLCDM\d]+(?:\.[A-Z\d]+)*(?:\s*[:.–—\-])?\s+|"
+    r"(?i:(?:Chapter|Section))\s+(?:[IVXLCDM\d]+|(?:" + _CHAPTER_WORDS + r"))(?:\.[A-Z\d]+)*(?:\s*[:.–—\-])?\s+|"
     r"(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})(?:[.\s]+(?:\d+|[IVXLCDM]{1,6}|[A-Z]{1,3}|[a-z]{1,3})){1,5}\.?\s+(?:[:.–—\-]\s*)?|"
     r"(?i:[IVXLCDM]+)\.(?:[A-Z]{1,3}|[a-z]{1,3})(?:\.\d+){0,3}\.?\s+(?:[:.–—\-]\s*)?|"
     r"(?i:[IVXLCDM]+)(?:\.\d+){0,3}\.?\s+(?:[:.–—\-]\s*)?|"

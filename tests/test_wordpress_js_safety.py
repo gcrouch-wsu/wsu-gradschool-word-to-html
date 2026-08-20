@@ -108,8 +108,9 @@ def test_heading_copy_icon_stays_with_the_last_word():
     body = SOURCE[start:start + 2600]
     assert "heading-link-cluster" in body
     assert 'cluster.style.setProperty("white-space", "nowrap", "important")' in body
-    assert "window.getComputedStyle" in body
-    assert 'cluster.style.setProperty(prop, headingStyle.getPropertyValue(prop), "important")' in body
+    assert 'cluster.style.setProperty("font-size", "inherit", "important")' in body
+    assert "window.getComputedStyle" not in body
+    assert "headingStyle.getPropertyValue" not in body
     assert "document.createTextNode(match[2])" in body
     assert "cluster.appendChild(icon)" in body
     assert 'this.closest("h1, h2, h3, h4, h5, h6")' in SOURCE
