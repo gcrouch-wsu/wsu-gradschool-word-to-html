@@ -16,6 +16,36 @@ For setup and step-by-step usage see `README.md`; for the in-app editor guide
 see `instructions.md`; for the companion config generator see
 `README_config_generator.md`.
 
+### Current state (2026-08-21)
+
+Facts a new session should not rediscover. Invariants: §15. Ranked remaining
+work: §21. Historical audits: §17–20 (do not treat them as live operator
+instructions).
+
+- **Paper path is browser print**, not a server PDF. `wordpress.js` calls
+  `window.print()`; `wordpress.css` `@media print` is the layout. §21 item 0
+  (WeasyPrint) has not started.
+- **Live GSPP and Faculty Manual use preserve-numbers.** That path does not
+  strip heading labels. `css-counters` (preserve off) strips spelled-out
+  `Chapter One` / `Section One` … `Twenty` so CSS `::before` does not
+  double-label. First `css-counters` rebuild: permalink-map keys are the
+  **post-strip** title.
+- **Operators paste `wordpress.css` and `wordpress.js` onto the WordPress
+  sites.** After the 2026-08-20 asset change, **both** Additional CSS and the
+  JS snippet must be re-pasted. Faculty Senate Additional CSS still has
+  unrelated site CSS above the manual block — append, do not replace. Do not
+  hide generic `header` (the page H1 lives there). Grad School org-chart CSS
+  is host CSS, not this repo's sheet.
+- **Print CSS** hides TOC/search/print/copy-link and WSU chrome scoped with
+  `body:has(.manual-grid)`, full-width content well, ~11pt type, underlined
+  `http(s)` links, **no** `attr(href)` dump, inherited `.heading-link-cluster`
+  type, no `break-before: page` on H2.
+- **Print JS** uses `inherit` on the heading last-word wrap (not stamped
+  screen px) and a non-breaking space before table `th`/`td` `<sup>` (no
+  wrapper span).
+- **Do not copy** `docx_config_generator.py`'s heading-prefix regex wholesale:
+  it still uniquely strips bare `A Title`.
+
 ---
 
 ## 1. Purpose
@@ -520,7 +550,9 @@ Coverage by area:
 - **Editing round trip** (`test_bundle_revised_docx.py`): a bundle imported with
   a revised DOCX uses the new document, accepts any filename, suppresses the
   hash warning only when a revision was supplied, and preserves curated edits.
-- **Unit/pipeline**: heading-prefix stripping and three-way regex parity;
+- **Unit/pipeline**: heading-prefix stripping and three-way regex parity
+  (including spelled-out Chapter/Section One–Twenty, and the pipeline-only
+  refusal of bare `A Title`);
   crosswalk numbering conversion and auto-matching; permalink signatures;
   duplicate-aware stable map (idempotency, legacy back-compat); HTML
   sanitization; URL policy and external-URL input normalization;
@@ -661,6 +693,13 @@ version matches `PANDOC_PINNED_VERSION` (no "older than pinned" warning);
   replaces trailing spaces before `th`/`td` `<sup>` with a non-breaking space.
   Do not wrap that word in a span — table `th` is bold and an inner span dropped
   to regular weight.
+- **Spelled-out Chapter/Section words strip in `css-counters`.** When
+  `preserve_numbers` is off, `_HEADING_PREFIX_RE` in `html_processor` and
+  `docx_processor` strips `Chapter`/`Section` plus One–Twenty (same first
+  alternative as the config generator). `Section I:` already stripped via
+  roman/digits. Preserve + inference-off leaves Word text. Do not copy the
+  generator's bare-letter `A Title` alternative. Fallback slugs and stable-map
+  keys use the **post-strip** heading text.
 
 ### Future candidates (none urgent, nothing blocking)
 
@@ -1108,7 +1147,8 @@ Section numbering.
 - `thead th` owns its background (§15) — fixes 4.21:1 black-on-crimson.
 - Added `@media print`: hides TOC/search/back-to-top/skip link, single column,
   repeats `thead` across pages, avoids splitting rows and headings, prints
-  external URLs after their links, `@page` margins.
+  external URLs after their links, `@page` margins. **Superseded 2026-08-20:**
+  print CSS no longer dumps URLs; current print rules are §15.
 - Focus ring scoped to `.manual-grid`. It was unscoped in a stylesheet installed
   site-wide, restyling every link and form control on the host site.
 - `body.page-id-43010` → `body:has(.manual-grid)`. The sticky-TOC overflow fix
@@ -1120,12 +1160,14 @@ Section numbering.
 External URL input is normalized and failures are reported (§8) — a scheme-less
 paste used to vanish from the field with no message.
 
-### Known-good deployment note
+### Known-good deployment note (as of this 2026-08-08 cycle)
 
-`wordpress.css` changed, so the site stylesheet needs re-pasting. On
-`facsen.wsu.edu` the manual CSS sits **below ~83 lines of unrelated WSU site
-fixes** in Appearance → Additional CSS; replacing the whole box deletes them.
-`wordpress.js` is unchanged — the code snippet needs no update.
+True at the time: `wordpress.css` needed re-pasting; on `facsen.wsu.edu` the
+manual CSS sits **below ~83 lines of unrelated WSU site fixes** in Appearance →
+Additional CSS; replacing the whole box deletes them. The claim that
+`wordpress.js` was unchanged is **no longer true** (2026-08-20: heading-cluster
+inherit + table `sup` NBSP). Re-paste **both** CSS and JS. Current print/JS
+invariants: §15.
 
 ---
 
@@ -1255,6 +1297,10 @@ are not rediscovered as open defects:
   `css-counters` no longer double-labels `Chapter 1. Chapter One Title`.
   Preserve + inference-off heading text is unchanged. First `css-counters`
   rebuild: permalink map keys off the **post-strip** signature.
+- Promoted print CSS/JS into `wordpress.css` / `wordpress.js` (chrome hide,
+  11pt, full-width well, no URL dump, inherit heading-cluster, NBSP before
+  table `sup`). Operators must re-paste **both** Additional CSS and the JS
+  snippet. Do not follow the §19 “JS unchanged” note.
 
 ### Open work, in the order it is worth doing
 

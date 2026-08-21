@@ -57,7 +57,7 @@ When you edit the manual in Word and want published URLs (`#section-anchors`) to
 |--------|----------------|
 | **Top-level label (Chapter or Section)** | **Auto** detects from Chapter/Section headings in the Word file (not cover-page keywords). Override to Chapter or Section only if Auto is wrong. |
 | **How should body references match headings?** | **Map body cites to new heading numbers** — use when renumbering (letter/Roman → decimals); runs a heading-number review. **Keep the Word file’s heading numbers** — use when the DOCX is already decimal; skips that review. |
-| **Show numbers in the heading text** | Only applies in **Map…** mode. Off (default) strips typed numbers so site CSS can add them. In **Keep…** mode this checkbox is ignored — Word numbers stay either way. |
+| **Show numbers in the heading text** | Only applies in **Map…** mode. Off (default) strips typed numbers **and** spelled-out labels like `Chapter One` / `Section One` so site CSS can add `Chapter 1.` In **Keep…** mode this checkbox is ignored — Word numbers stay either way. |
 | **Open table review before export** | If the document has tables, you get a table review step before export. You can also open **Table settings…** from the preview later. |
 | **Table of Contents Depth** | How many heading levels appear in the generated TOC (H1 through H5). |
 | **Advanced** | Infer heading levels from Word numbering styles (map-to-new only); strip direct Word formatting. Leave off unless a conversion mis-levels headings or you need a cleaner slate for CSS. |
@@ -130,10 +130,10 @@ Grouped on the preview page:
 ## WordPress deployment (summary)
 
 1. Add **CSS** site-wide (e.g. **Appearance → Customize → Additional CSS** or a CSS plugin). Prefer **CSS + theme** or **CSS (base only)** as appropriate; **append** below any existing site CSS — do not replace the whole box.
-2. Add **JS** site-wide or via a **code snippet** plugin. If your snippet UI expects raw HTML, wrap the script in `<script> … </script>` tags.
+2. Add **JS** site-wide or via a **code snippet** plugin. If your snippet UI expects raw HTML, wrap the script in `<script> … </script>` tags. After a converter CSS/JS update, re-paste **both** files (the 2026-08-20 print change updated both).
 3. Paste the **Fragment** HTML into a **Custom HTML** block.
 
-The TOC panel is controlled by the site-level JS. With the current `wordpress.js`, the TOC includes search and a **Print / Save PDF** button. That button opens the browser print dialog and uses the app's print CSS so the printed/PDF version drops the TOC/search controls, uses a single content column, repeats table headers, and prints external link targets.
+The TOC panel is controlled by the site-level JS. With the current `wordpress.js`, the TOC includes search and a **Print / Save PDF** button. That button opens the browser print dialog and uses the app's print CSS so the printed/PDF version drops TOC/search/print chrome, uses a single full-width ~11pt column, repeats table headers, and underlines external links without printing the URL after them.
 
 **Important:** WordPress often strips `<input>`, `<style>`, and `<script>` from Custom HTML blocks. The shipped `wordpress.js` includes logic to recreate the TOC search box and print button when needed. **Fragment + CSS** is still not enough by itself in WordPress if the host strips embedded `<style>` / `<script>` — use site-level CSS and JS as above.
 

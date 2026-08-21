@@ -16,7 +16,7 @@ For the authoritative description of the architecture, module layout, security m
 - **Intended round-trip editing workflow** — exports a clean DOCX for the next Word editing cycle and supports heading-map-based permalink continuity; known limitations are handled through structured review steps in the app
 - **Searchable TOC** — JavaScript-powered table of contents with live search, scrollspy, and keyboard navigation
 - **Reference crosswalk** — converts legacy heading references (Roman numerals, letters) to numeric format
-- **Print-ready** — the exported CSS includes a print stylesheet, so browser Print / Save as PDF drops the sidebar TOC and search box, repeats table headers across page breaks, and prints external link targets
+- **Print-ready** — browser Print / Save as PDF uses the exported `@media print` stylesheet: drops TOC, search, the print button, and WSU chrome on manual pages; ~11pt full-width type; repeats table headers; underlines external links **without** printing the URL after them
 - **Per-table control** — each table's header row, column alignment and placement on the page are set individually in Table Review, because the right answer depends on the table
 - **Editing round trip** — send the Word file to an editor, upload it back alongside your session bundle, and the reference review is re-attached to the edited document
 - **Local-first runtime with a Railway/Docker deployment path** — treat internet-facing deployment as a separate hardening exercise (secrets, CSRF, container `PORT`, ZIP/session limits); validate against your own checklist before going public
@@ -144,7 +144,7 @@ with the count and what to do about it.
 
 1. Upload the edited DOCX
 2. Upload the previous `.heading-map.json` file (file picker in the Advanced section, or paste the JSON)
-3. Leave "Keep heading numbers" unchecked — the app strips old numbers and renumbers from the current structure
+3. Choose numbering to match the document. Already-decimal manuals that should keep Word's numbers (current GSPP / Faculty Manual) → keep numbers. Mapping/renumbering → leave numbers unchecked; spelled-out labels like `Chapter One` are stripped so site CSS can add `Chapter 1.` (permalinks then key off the remaining title unless you carry a heading map).
 4. Process through reviews and convert
 5. Download new HTML + new DOCX + new heading map
 6. The heading map preserves permalink IDs: unchanged headings keep their anchor IDs, so WordPress URLs stay stable
@@ -154,10 +154,11 @@ with the count and what to do about it.
 1. Add the **CSS** as site-level custom CSS (Appearance → Customize → Additional CSS, or a custom CSS plugin). Two flavours are offered: **CSS + theme** includes this session's theme settings, **CSS (base only)** is the stylesheet alone. If your site has never had the theme block installed, take the base-only download — adding the theme block changes fonts and table styling you may not want.
    - **Append, don't replace.** If the site already has unrelated custom CSS in that box, paste the manual stylesheet *below* it — replacing the whole box deletes the site's own fixes.
    - The stylesheet is page-agnostic: it targets `body:has(.manual-grid)`, so publishing a second manual on a different page needs no CSS edit.
-   - It includes a print stylesheet, so browser **Print / Save as PDF** drops the sidebar TOC, search box, and back-to-top button, repeats table headers across pages, and prints external link targets.
+   - It includes a print stylesheet, so browser **Print / Save as PDF** drops the sidebar TOC, search, print button, copy-link icons, and WSU chrome on the manual page, uses a full-width ~11pt column, repeats table headers, and underlines external links without dumping their URLs.
 2. Add the **JS** as either:
    - **Site-level JS** (no wrappers needed), or
    - **Code snippet** — must be wrapped in `<script>` tags
+   - After a converter asset update, re-paste **both** CSS and JS. The 2026-08-20 print/heading-cluster change updated both files.
 3. Paste the **Fragment** HTML into a WordPress Custom HTML block
 4. WordPress strips `<input>`, `<style>`, and `<script>` tags from Custom HTML blocks — the JS includes a fallback that recreates the search input automatically
 5. **Fragment + CSS cannot work standalone in WordPress** — WordPress strips embedded `<style>` and `<script>` tags from Custom HTML blocks. CSS and JS must be added separately via site-level settings or code snippets as described above

@@ -1,6 +1,8 @@
 # DOCX Configuration Generator
 
-A standalone Flask application for analyzing DOCX files and generating JSON configuration manifests for use with the main Word-to-WordPress conversion application.
+A standalone Flask application for analyzing DOCX files and generating JSON
+configuration manifests. It is a **local style-preview / heading-map exploration
+tool**, not part of the main converter upload workflow.
 
 **Deployment:** The main converter’s deployment scope is a maintainer concern outside this README; this companion app remains **local-only** unless your team explicitly expands it.
 
@@ -14,8 +16,8 @@ This tool allows you to:
 - Edit ordered and unordered list formats
 - Run a basic heading-order accessibility preflight
 - Edit heading structure (levels and titles)
-- Export inferred heading token maps for converter use
-- Export a JSON configuration file that can be used with the main conversion app
+- Export inferred heading token maps for inspection in this tool
+- Export a JSON configuration file you can re-import into this generator later
 - Download an example DOCX that illustrates the resolved styles
 - Import a JSON configuration file to continue editing later
 
@@ -41,7 +43,8 @@ pip install flask python-docx
 python docx_config_generator.py
 ```
 
-The app will start on `http://127.0.0.1:5000`.
+The app will start on `http://127.0.0.1:5000`. The main converter also defaults
+to port 5000 — stop it first, or this bind will fail.
 
 ### Workflow
 
@@ -61,7 +64,7 @@ The app will start on `http://127.0.0.1:5000`.
    - Edit heading structure (change levels, update titles)
 4. **Save & Export**: Click "Save Configuration" then "Download JSON"
 5. **Example DOCX**: Download a visual sample doc to confirm styles
-6. **Use in Main App**: The JSON file can be loaded in the main conversion app (future feature)
+6. **Re-import later**: Download JSON from this tool and import it here to resume. The main converter does **not** load this file.
 
 **Save vs Download JSON**:
 - **Preview updates automatically** when you change a setting (unsaved).
@@ -140,7 +143,7 @@ The exported JSON contains:
 - **Accessibility Preflight**: Flags heading order skips
 - **Visual Editor**: User-friendly interface for editing configuration
 - **Preview Panel**: Live preview to compare keep-original vs new-numeric heading styles
-- **JSON Export**: Clean, structured JSON output for integration with main app
+- **JSON Export**: Structured JSON you can re-import into this generator
 - **Example DOCX Export**: Generates a sample Word file for style verification
 - **Session Management**: Files stored temporarily (can be cleared between sessions)
 
@@ -152,19 +155,16 @@ The exported JSON contains:
 
 ## Integration with Main App
 
-The JSON configuration file is designed to be used by the main conversion app (`word_to_wordpress.py`) to:
-- Pre-configure style settings
-- Define heading structure
-- Set conversion preferences
-- Maintain consistency across conversions
-
-*(Integration with main app is a future enhancement)*
+The converter (`word_to_wordpressV4.py`) does **not** load this JSON today.
+The generator shares canonical helpers with `core/` and `utils/` (see
+`PROJECT_SPEC.md` §11) so heading-prefix and numbering helpers cannot drift.
+Do not deploy it: `debug=True`, no authentication, no CSRF. §21 tracks whether
+it stays local-only or gets the same gate as the main app.
 
 ## Notes
 
-- This is a separate, standalone application
-- No modifications to existing code are made
-- Runs on port 5000 by default
+- Separate standalone app; not part of the Railway/Docker deploy target
+- Runs on port 5000 by default (conflicts with the main app if both are up)
 - Session files are temporary and may be cleared on system restart
 - Font sizes in the config are stored in points to match Word.
 
