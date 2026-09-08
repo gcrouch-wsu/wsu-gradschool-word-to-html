@@ -21,3 +21,20 @@ def test_manual_links_have_a_single_css_underline():
 def test_word_underlines_inside_manual_links_are_neutralized():
     body = _rule_body(".manual a u")
     assert "text-decoration: none !important" in body
+
+
+def test_ordered_lists_keep_native_list_item_counter_scoping():
+    ordered_list_rules = re.findall(
+        r"(?m)^\.manual ol\s*\{(?P<body>.*?)\}",
+        CSS,
+        re.DOTALL,
+    )
+
+    assert ordered_list_rules, ".manual ol rules are missing"
+    assert all(
+        not re.search(r"\bcounter-reset\s*:\s*none\b", body, re.IGNORECASE)
+        for body in ordered_list_rules
+    ), (
+        "Do not disable the native list-item counter on <ol>; Firefox then "
+        "continues nested list numbering instead of restarting it"
+    )

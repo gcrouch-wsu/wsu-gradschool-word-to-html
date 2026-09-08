@@ -339,7 +339,6 @@ div.manual-grid nav.manual-toc {
 	list-style-type: decimal !important;
 	margin-left: 1.5em !important;
 	padding-left: 0 !important;
-	counter-reset: none !important;
 }
 
 .manual ol[type="a"] {
@@ -1050,7 +1049,6 @@ div.manual-grid nav.manual-toc {
 	list-style-type: decimal !important;
 	margin-left: 1.5em !important;
 	padding-left: 0 !important;
-	counter-reset: none !important;
 }
 
 /* List marker normalization for WordPress theme overrides */
