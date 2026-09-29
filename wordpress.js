@@ -7,11 +7,35 @@
   // Check if user prefers reduced motion
   var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // Shown as data-manual-js on the grid so a device can be checked for the
+  // version it is actually running.
+  var MANUAL_JS_VERSION = "v4";
+
+  // The single phone/tablet definition. Must match the compact @media query
+  // in wordpress.css exactly. CSS owns all layout; JS only sets state.
+  var COMPACT_MQ = "screen and (max-width: 960px)";
+  var compactQuery = window.matchMedia(COMPACT_MQ);
+
+  function useCompactNav() {
+    return compactQuery.matches;
+  }
+
+  // The converter's skip link duplicates WSU's own "Skip to content".
+  // CSS hides it too; remove this once the link is gone from the page HTML.
+  function removeManualSkipLinks() {
+    var skips = document.querySelectorAll("a.skip-to-main");
+    for (var s = 0; s < skips.length; s++) {
+      if (skips[s].parentNode) skips[s].parentNode.removeChild(skips[s]);
+    }
+  }
+
   function initManual() {
+    removeManualSkipLinks();
     var grids = document.querySelectorAll(".manual-grid");
     if (!grids.length) {
       // If not found immediately, try again after a short delay for WordPress compatibility
       setTimeout(function() {
+        removeManualSkipLinks();
         var retryGrids = document.querySelectorAll(".manual-grid");
         if (retryGrids.length) {
           processManualGrids(retryGrids);
@@ -91,8 +115,17 @@
   function processManualGrids(grids) {
     for (var g = 0; g < grids.length; g++) {
       var grid = grids[g];
-      if (grid.dataset.gsppEnhanced === "1") continue;
+      if (grid.dataset.gsppEnhanced === "1") {
+        // Another copy of this script already ran; only the first one takes
+        // effect, so an older script left on the page silently wins.
+        if (grid.dataset.manualJs !== MANUAL_JS_VERSION && window.console) {
+          console.warn("Manual script " + MANUAL_JS_VERSION + " skipped: grid already enhanced by " +
+            (grid.dataset.manualJs || "an older script") + ". Remove the other script block.");
+        }
+        continue;
+      }
       grid.dataset.gsppEnhanced = "1";
+      grid.dataset.manualJs = MANUAL_JS_VERSION;
 
       // Scope class so CSS only targets real manuals; also allow layout flush
       grid.classList.add("gspp-manual");
@@ -108,41 +141,9 @@
         printButton.textContent = "Print / Save PDF";
         printButton.setAttribute("aria-label", "Print or save this manual as a PDF");
         printButton.title = "Print or save as PDF";
-        var printButtonStyles = {
-          "align-items": "center",
-          "background": "#A60F2D",
-          "border": "1px solid #8A0D26",
-          "border-radius": "6px",
-          "box-shadow": "0 2px 4px rgba(0,0,0,0.08)",
-          "box-sizing": "border-box",
-          "color": "#fff",
-          "cursor": "pointer",
-          "display": "inline-flex",
-          "font-family": "\"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif",
-          "font-size": "14px",
-          "font-weight": "700",
-          "gap": "6px",
-          "justify-content": "center",
-          "line-height": "1.2",
-          "margin": "0 0 12px",
-          "padding": "10px 12px",
-          "text-align": "center",
-          "width": "100%"
-        };
-        Object.keys(printButtonStyles).forEach(function(prop) {
-          printButton.style.setProperty(prop, printButtonStyles[prop], "important");
-        });
         printButton.addEventListener("click", function(evt) {
           evt.preventDefault();
           window.print();
-        });
-        printButton.addEventListener("mouseenter", function() {
-          this.style.setProperty("background", "#8A0D26", "important");
-          this.style.setProperty("border-color", "#6f0a1f", "important");
-        });
-        printButton.addEventListener("mouseleave", function() {
-          this.style.setProperty("background", "#A60F2D", "important");
-          this.style.setProperty("border-color", "#8A0D26", "important");
         });
         var tocHeading = toc.querySelector("#toc-heading, h2");
         toc.insertBefore(printButton, tocHeading || toc.firstChild);
@@ -193,7 +194,8 @@
           depth += 1;
         }
 
-        // Second pass: delayed re-check + force TOC sticky
+        // Second pass: re-check ancestors after the WordPress theme settles.
+        // CSS controls sticky positioning on desktop and normal flow on mobile.
         setTimeout(function() {
           var node = grid;
           var depth = 0;
@@ -216,10 +218,6 @@
             node = node.parentElement;
             depth += 1;
           }
-
-          // Force TOC to be sticky
-          toc.style.setProperty('position', 'sticky', 'important');
-          toc.style.setProperty('top', '20px', 'important');
         }, 500);
       })();
 
@@ -274,6 +272,55 @@
       var tocClear = toc.querySelector(".manual-search-clear");
       if (!tocList) continue;
 
+      // Keep search in view on phones; reveal the chapter list only on request.
+      // JS only records open/closed in data-mobile-browse-open; the compact
+      // @media block in the CSS decides what is shown.
+      if (!tocList.id) tocList.id = "manual-toc-list-" + (g + 1);
+      toc.querySelectorAll(".manual-mobile-nav-title").forEach(function(el) { el.remove(); });
+      var browseButton = document.createElement("button");
+      browseButton.type = "button";
+      browseButton.className = "manual-mobile-toc-toggle";
+      browseButton.setAttribute("aria-controls", tocList.id);
+      browseButton.setAttribute("aria-expanded", "false");
+      browseButton.setAttribute("aria-label", "Expand table of contents");
+      browseButton.textContent = "Expand table of contents";
+      toc.insertBefore(browseButton, tocList);
+      toc.dataset.mobileEnhanced = "1";
+      toc.dataset.mobileBrowseOpen = "false";
+
+      function isPhoneNav() {
+        return useCompactNav();
+      }
+
+      function setMobileBrowseOpen(open) {
+        if (open && tocSearch && tocSearch.value.trim()) {
+          tocSearch.value = "";
+          tocSearch.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        toc.dataset.mobileBrowseOpen = open ? "true" : "false";
+        browseButton.setAttribute("aria-expanded", open ? "true" : "false");
+        browseButton.setAttribute("aria-label", open ? "Collapse table of contents" : "Expand table of contents");
+        browseButton.textContent = open ? "Collapse table of contents" : "Expand table of contents";
+      }
+
+      browseButton.addEventListener("click", function(evt) {
+        evt.preventDefault();
+        setMobileBrowseOpen(toc.dataset.mobileBrowseOpen !== "true");
+      });
+      tocList.addEventListener("click", function(evt) {
+        var link = evt.target.closest && evt.target.closest('a[href^="#"]');
+        if (!link || !isPhoneNav()) return;
+        var target = document.getElementById(link.getAttribute("href").slice(1));
+        setMobileBrowseOpen(false);
+        if (target) {
+          setTimeout(function() {
+            if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+            target.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "start" });
+            try { target.focus({ preventScroll: true }); } catch (_err) { target.focus(); }
+          }, 0);
+        }
+      });
+
       // WCAG 4.1.3: announce TOC filter results to screen readers
       if (!tocList.getAttribute("aria-live")) {
         tocList.setAttribute("aria-live", "polite");
@@ -298,8 +345,8 @@
         tocSearch = document.createElement("input");
         tocSearch.type = "text";
         tocSearch.className = "manual-search-input";
-        tocSearch.placeholder = "Search headings and content...";
-        tocSearch.setAttribute("aria-label", "Search table of contents");
+        tocSearch.placeholder = "Search this manual...";
+        tocSearch.setAttribute("aria-label", "Search this manual");
         tocSearch.setAttribute("role", "searchbox");
         searchDiv.insertBefore(tocSearch, searchDiv.firstChild);
         if (!tocClear) {
@@ -722,7 +769,8 @@
         /* ----- Enhanced Search Box - searches headings AND content ----- */
         if (tocSearch) {
           // Update placeholder text
-          tocSearch.placeholder = "Search headings and content...";
+          tocSearch.placeholder = "Search this manual...";
+          tocSearch.setAttribute("aria-label", "Search this manual");
           
           // Create aria-live region for screen reader announcements
           var searchStatus = document.createElement("div");
@@ -900,6 +948,16 @@
             setClearVisibility(false);
           }
 
+          function finishMobileSearch() {
+            if (!isPhoneNav()) return;
+            tocSearch.value = "";
+            searchResults.style.display = "none";
+            searchResults.innerHTML = "";
+            searchStatus.textContent = "";
+            setClearVisibility(false);
+            setMobileBrowseOpen(false);
+          }
+
           function navigateToElement(id) {
             var targetElement = document.getElementById(id);
             if (targetElement) {
@@ -913,6 +971,8 @@
 
           tocSearch.addEventListener("input", function () {
             var q = this.value.toLowerCase().trim();
+
+            if (q && isPhoneNav()) setMobileBrowseOpen(false);
 
             if (!q) {
               // Show normal TOC, hide search results
@@ -992,6 +1052,7 @@
                     var target = document.getElementById(headingId);
                     setSearchResultActive(this);
                     if (target) setSearchTarget(target);
+                    finishMobileSearch();
                     navigateToElement(headingId);
                   };
                 })(match.id));
@@ -1024,9 +1085,10 @@
 
                 contentItem.addEventListener("click", (function(element) {
                   return function() {
-                    element.scrollIntoView({ behavior: "smooth", block: "center" });
                     setSearchResultActive(this);
                     setSearchTarget(element);
+                    finishMobileSearch();
+                    element.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "center" });
                   };
                 })(contentMatch.element));
                 searchResults.appendChild(contentItem);

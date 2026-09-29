@@ -1,26 +1,15 @@
 /* ========================================
    Word_To_Wordpress - greg crouch
+   manual-css v4
    ======================================== */
-/* Accessibility features (WCAG 2.1 AA) */
-/* Skip to main content link - WCAG 2.4.1 (Bypass Blocks) */
-.skip-to-main {
-	position: absolute !important;
-	left: -9999px !important;
-	z-index: 9999 !important;
-	padding: 12px 20px !important;
-	background: #A60F2D !important;
-	color: #fff !important;
-	text-decoration: none !important;
-	border-radius: 4px !important;
-	font-weight: 700 !important;
-	font-size: 16px !important;
-}
+/* Phone/tablet layout is ONE media query: `screen and (max-width: 960px)`.
+   wordpress.js uses the same string (COMPACT_MQ). Keep them identical.
+   Base rules below are the desktop layout; there is no desktop media query. */
 
-.skip-to-main:focus {
-	left: 10px !important;
-	top: 10px !important;
-	outline: 3px solid #fff !important;
-	outline-offset: 2px !important;
+/* WSU already provides "Skip to content". The converter's own skip link is
+   hidden until it is removed from each page's HTML. */
+.skip-to-main {
+	display: none !important;
 }
 
 /* Screen reader only content - for accessibility labels */
@@ -219,8 +208,10 @@ div.manual-grid nav.manual-toc {
 	height: fit-content !important;
 	margin: 0 !important;
 	padding: 16px !important;
-	background: #fafafa !important;
-	border: 1px solid #e5e5e5 !important;
+	background-color: #f3efe9 !important;
+	background-image: none !important;
+	border: 1px solid #cfc6bc !important;
+	border-left: 4px solid #A60F2D !important;
 	border-radius: 8px !important;
 	box-sizing: border-box !important;
 	z-index: 10 !important;
@@ -495,10 +486,47 @@ div.manual-grid nav.manual-toc {
 	content: none !important;
 }
 
-/* TOC styling */
+/* TOC styling.
+   Background lives on `.manual-toc` itself as well as the grid-column rule:
+   WSU nav/article rules can paint `nav` transparent, which made the GS TOC
+   look like it had no panel while Faculty still showed one. #fafafa on a
+   white content well is also nearly invisible — use a warmer panel + crimson
+   edge so the nav/content boundary is obvious on both sites. */
 .manual-toc {
 	font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif !important;
 	font-size: 14px !important;
+	background-color: #f3efe9 !important;
+	background-image: none !important;
+	border: 1px solid #cfc6bc !important;
+	border-left: 4px solid #A60F2D !important;
+}
+
+.manual-print-button {
+	align-items: center !important;
+	background: #A60F2D !important;
+	border: 1px solid #8A0D26 !important;
+	border-radius: 6px !important;
+	box-shadow: 0 2px 4px rgba(0,0,0,0.08) !important;
+	box-sizing: border-box !important;
+	color: #fff !important;
+	cursor: pointer !important;
+	display: inline-flex !important;
+	font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif !important;
+	font-size: 14px !important;
+	font-weight: 700 !important;
+	gap: 6px !important;
+	justify-content: center !important;
+	line-height: 1.2 !important;
+	margin: 0 0 12px !important;
+	padding: 10px 12px !important;
+	text-align: center !important;
+	width: 100% !important;
+}
+
+.manual-print-button:hover,
+.manual-print-button:focus {
+	background: #8A0D26 !important;
+	border-color: #6f0a1f !important;
 }
 
 .manual-toc h2 {
@@ -789,19 +817,184 @@ div.manual-grid nav.manual-toc {
 	margin: 4px -4px !important;
 }
 
-/* Mobile override - still force two columns */
-@media (max-width: 960px) {
+.manual-mobile-toc-toggle,
+.manual-mobile-nav-title {
+	display: none !important;
+}
+
+/* Phone/tablet: compact labeled nav, search first, chapters collapsed, no print.
+   Must match COMPACT_MQ in wordpress.js. */
+@media screen and (max-width: 960px) {
 	.manual-grid,
-												.manual-grid.gspp-manual {
-		grid-template-columns: 1fr 250px !important;
-		grid-gap: 20px !important;
+	.manual-grid.gspp-manual,
+	div.manual-grid,
+	.wp-block-html .manual-grid {
+		display: block !important;
 		padding: 0 10px !important;
 	}
-	
+
+	.manual-grid,
+	body .manual-grid,
+	.wp-site-blocks .manual-grid,
+	.wp-block-group .manual-grid {
+		margin-left: 0 !important;
+	}
+
+	.manual-grid > .manual,
+	.gspp-manual > .manual,
+	div.manual-grid > .manual {
+		display: block !important;
+		min-width: 0 !important;
+		max-width: 100% !important;
+		overflow-x: auto !important;
+		border-top: 3px solid #A60F2D !important;
+		padding-top: 16px !important;
+		margin-top: 4px !important;
+	}
+
+	.manual-grid > .manual::before {
+		content: "Manual content";
+		display: block !important;
+		color: #A60F2D !important;
+		font: 700 11px/1.3 "Segoe UI", Tahoma, Geneva, Verdana, sans-serif !important;
+		letter-spacing: .12em !important;
+		text-transform: uppercase !important;
+		margin-bottom: 10px !important;
+	}
+
+	/* GS embeds a nested .manual wrapper; do not print a second label. */
+	.manual-grid > .manual .manual,
+	.manual-grid > .manual .manual::before {
+		content: none !important;
+		border-top: none !important;
+		padding-top: 0 !important;
+		margin-top: 0 !important;
+		background: none !important;
+	}
+
+	.manual-grid .manual-toc,
+	.gspp-manual .manual-toc,
+	div.manual-grid nav.manual-toc,
 	.manual-toc {
-		max-width: 250px !important;
+		display: flex !important;
+		flex-direction: column !important;
+		position: relative !important;
+		top: auto !important;
+		z-index: 20 !important;
+		min-width: 0 !important;
+		width: 100% !important;
+		max-width: none !important;
+		height: auto !important;
+		max-height: none !important;
+		overflow: visible !important;
+		margin: 0 0 16px !important;
 		font-size: .9rem !important;
 		padding: 12px !important;
+		background-color: #f3efe9 !important;
+		background-image: none !important;
+		border: 1px solid #cfc6bc !important;
+		border-left: 4px solid #A60F2D !important;
+		border-radius: 8px !important;
+		box-shadow: 0 1px 2px rgba(0,0,0,.06) !important;
+	}
+
+	.manual-grid .manual-toc[data-mobile-browse-open="true"] {
+		max-height: 70vh !important;
+		overflow: auto !important;
+	}
+
+	.manual-toc > h2 {
+		position: absolute !important;
+		width: 1px !important;
+		height: 1px !important;
+		padding: 0 !important;
+		margin: -1px !important;
+		overflow: hidden !important;
+		clip: rect(0, 0, 0, 0) !important;
+		white-space: nowrap !important;
+	}
+
+	.manual-toc .manual-mobile-nav-title {
+		display: none !important;
+	}
+
+	.manual-toc .manual-search {
+		order: 1 !important;
+	}
+
+	.manual-toc .manual-search-input {
+		min-height: 44px !important;
+		padding-right: 44px !important;
+		margin: 0 0 8px !important;
+		background: #fff !important;
+		border-color: #777 !important;
+	}
+
+	.manual-toc .manual-search-clear {
+		width: 36px !important;
+		height: 36px !important;
+		right: 4px !important;
+	}
+
+	.manual-toc .manual-mobile-toc-toggle {
+		order: 2 !important;
+		display: flex !important;
+		align-items: center !important;
+		justify-content: space-between !important;
+		width: 100% !important;
+		min-height: 44px !important;
+		padding: 8px 12px !important;
+		background: #fff !important;
+		border: 1px solid #A60F2D !important;
+		border-radius: 6px !important;
+		color: #8A0D26 !important;
+		font: 600 14px/1.3 "Segoe UI", Tahoma, Geneva, Verdana, sans-serif !important;
+		cursor: pointer !important;
+		touch-action: manipulation !important;
+		-webkit-tap-highlight-color: rgba(166,15,45,0.15);
+	}
+
+	.manual-toc .manual-mobile-toc-toggle::after {
+		content: "▾";
+		font-size: 18px;
+		line-height: 1;
+	}
+
+	.manual-toc .manual-mobile-toc-toggle[aria-expanded="true"]::after {
+		transform: rotate(180deg);
+	}
+
+	.manual-toc .manual-search-results {
+		order: 3 !important;
+		max-height: 40vh !important;
+		overflow-y: auto !important;
+	}
+
+	.manual-toc[data-mobile-enhanced="1"] > ul {
+		order: 4 !important;
+	}
+
+	/* The only open/closed state is data-mobile-browse-open, set by the JS. */
+	.manual-toc[data-mobile-enhanced="1"]:not([data-mobile-browse-open="true"]) > ul {
+		display: none !important;
+	}
+
+	.manual-toc[data-mobile-enhanced="1"][data-mobile-browse-open="true"] > ul {
+		display: block !important;
+	}
+
+	.manual-print-button,
+	.manual-toc .manual-print-button {
+		display: none !important;
+	}
+}
+
+@media screen and (max-width: 480px) {
+	.manual-grid,
+	.manual-grid.gspp-manual,
+	div.manual-grid,
+	.wp-block-html .manual-grid {
+		padding: 0 4px !important;
 	}
 }
 
@@ -831,6 +1024,12 @@ div.manual-grid nav.manual-toc {
 	border-color: #8A0D26 !important;
 	transform: translateY(-2px) !important;
 	box-shadow: 0 6px 16px rgba(166,15,45,0.4) !important;
+}
+
+@media screen and (max-width: 960px) {
+	#manual-back-to-top {
+		z-index: 5 !important;
+	}
 }
 
 .manual-grid[data-theme="faculty"] .manual {
@@ -918,10 +1117,14 @@ div.manual-grid nav.manual-toc {
 	padding-left: .5em !important;
 }
 
-.manual-grid[data-theme="faculty"] .manual-toc {
+.manual-grid[data-theme="faculty"] .manual-toc,
+.manual-grid[data-theme="gspp"] .manual-toc,
+.manual-grid[data-theme="manual"] .manual-toc {
 	font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif !important;
-	background: #FAFAFA !important;
-	border-color: #E5E5E5 !important;
+	background-color: #f3efe9 !important;
+	background-image: none !important;
+	border-color: #cfc6bc !important;
+	border-left: 4px solid #A60F2D !important;
 }
 
 .manual-grid[data-theme="faculty"] .manual-toc h2 {
@@ -1007,7 +1210,9 @@ div.manual-grid nav.manual-toc {
    !important and are appended after this file, so the Table Review settings
    still win when they are installed. */
 .manual table thead th,
-.manual-grid .manual table thead th {
+.manual-grid .manual table thead th,
+.manual table th[scope="col"],
+.manual-grid .manual table th[scope="col"] {
 	background-color: #f5f5f5 !important;
 	color: #000 !important;
 	font-weight: 700 !important;
@@ -1202,15 +1407,27 @@ body .manual-grid .manual ul > li::before {
 	   The back-to-top button is an id (#manual-back-to-top, not a class), and
 	   the heading copy-link icon is set to display:inline-flex !important by
 	   `.manual .heading-link-icon`, so both need their own specificity. */
+	body:has(.manual-grid) .manual-toc,
+	body:has(.manual-grid) nav.manual-toc,
+	body:has(.manual-grid) .manual-print-button,
 	.manual-grid .manual-toc,
+	.gspp-manual .manual-toc,
+	div.manual-grid nav.manual-toc,
+	.manual-toc,
 	.skip-to-main,
 	.manual-grid .manual-search,
 	.manual-grid .manual-search-results,
 	.manual-grid .manual-search-status,
 	.manual-grid .manual-print-button,
+	.manual-print-button,
+	.manual-mobile-toc-toggle,
+	.manual-mobile-nav-title,
+	.manual-grid .manual::before,
+	.manual-grid > .manual::before,
 	#manual-back-to-top,
 	.manual .heading-link-icon {
 		display: none !important;
+		content: none !important;
 	}
 
 	/* Single column, full width — the grid's TOC column is gone.
@@ -1330,7 +1547,9 @@ body .manual-grid .manual ul > li::before {
 
 	/* Matches `.manual-grid .manual table thead th` above (0,2,3). */
 	.manual table thead th,
-	.manual-grid .manual table thead th {
+	.manual-grid .manual table thead th,
+	.manual table th[scope="col"],
+	.manual-grid .manual table th[scope="col"] {
 		background-color: #eee !important;
 		color: #000 !important;
 	}

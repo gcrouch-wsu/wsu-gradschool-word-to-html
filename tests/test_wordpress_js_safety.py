@@ -125,7 +125,26 @@ def test_print_button_is_created_in_the_toc():
     assert 'window.print()' in body
     assert 'toc.querySelector("#toc-heading, h2")' in body
     assert 'toc.insertBefore(printButton, tocHeading || toc.firstChild)' in body
-    assert 'printButton.style.setProperty(prop, printButtonStyles[prop], "important")' in body
+    # CSS owns the button's look and its phone/desktop visibility. An inline
+    # `display` from JS beats every stylesheet rule and kept Print visible on
+    # phones, so the script must not style it.
+    assert "printButton.style" not in SOURCE
+    assert "printButtonStyles" not in SOURCE
+
+
+def test_compact_nav_query_matches_the_stylesheet():
+    """Phone layout has one definition, shared by the CSS and the JS.
+
+    When they diverged (pointer/hover checks in JS, width in CSS), a device
+    could get phone behaviour from one and desktop layout from the other.
+    """
+    match = re.search(r'var COMPACT_MQ = "([^"]+)"', SOURCE)
+    assert match, "wordpress.js must define COMPACT_MQ"
+    css = (JS.parent / "wordpress.css").read_text(encoding="utf-8")
+    assert f"@media {match.group(1)} {{" in css
+    # JS records state only; the compact layout is not forced inline.
+    assert "keepMobileTocInFlow" not in SOURCE
+    assert "touchend" not in SOURCE
 
 
 @pytest.mark.parametrize("sink", ["insertAdjacentHTML", "outerHTML", "document.write"])

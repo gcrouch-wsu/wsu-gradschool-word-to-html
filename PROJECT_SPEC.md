@@ -684,6 +684,19 @@ version matches `PANDOC_PINNED_VERSION` (no "older than pinned" warning);
   `break-after: avoid` only — **no** `break-before: page` on H2 or offset-1 H2
   (that was an earlier print experiment; do not restore it). `@page` is
   `0.75in`; Chromium still mostly honors the print-dialog margins.
+- **Phone/tablet nav has one definition: `screen and (max-width: 960px)`.**
+  `wordpress.css` base rules are the desktop layout; the one compact `@media`
+  block collapses the TOC (search + "Expand table of contents"), hides Print,
+  and stacks the columns. `wordpress.js` `COMPACT_MQ` is the same string and the
+  script only sets state (`data-mobile-browse-open`, `aria-expanded`, label) —
+  no inline layout or `display` styles, click-only toggle. The converter's skip
+  link is hidden (WSU pages already have "Skip to content"). Both WSU sites send
+  `width=device-width`, so iPhones report ~393px; the 2026-09 iPhone failures
+  were an unclosed `@media (hover: hover) and (pointer: fine)` block in the GS
+  Additional CSS above the manual CSS, not a breakpoint problem. Verify phones in
+  Playwright **WebKit** with an iPhone device profile, not a resized Chromium
+  window (which still reports a mouse). `test_compact_nav_query_matches_the_stylesheet`
+  guards the shared query.
 - **Heading last-word wrap must inherit type, not stamp screen pixels.**
   `wordpress.js` keeps the last heading word and copy-link icon in
   `.heading-link-cluster` with `white-space:nowrap` and `font*`/`color` set to
@@ -1557,6 +1570,12 @@ are not rediscovered as open defects:
    two `.manual-toc` rules already scoped, rated lower risk because an id
    collision is less likely than a class collision. Unfinished, not dismissed.
 5. **Unused imports and locals** reported by pyflakes.
+6. **Stop emitting the converter's skip link.** `build_manual_grid`
+   (`core/html_processor.py`) still writes `<a class="skip-to-main">` before the
+   grid, and `tests/test_build_manual_grid.py` asserts it. WSU pages already have
+   "Skip to content", so `wordpress.css` hides it and `wordpress.js` removes it at
+   runtime. Removing it from the HTML makes both of those workarounds deletable;
+   delete the line from already-published pages when they are next re-pasted.
 
 ### Possible builds (not scheduled)
 
