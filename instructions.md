@@ -129,11 +129,13 @@ Grouped on the preview page:
 
 ## WordPress deployment (summary)
 
-1. Add **CSS** site-wide (e.g. **Appearance → Customize → Additional CSS** or a CSS plugin). Prefer **CSS + theme** or **CSS (base only)** as appropriate; **append** below any existing site CSS — do not replace the whole box.
-2. Add **JS** site-wide or via a **code snippet** plugin. If your snippet UI expects raw HTML, wrap the script in `<script> … </script>` tags. After a converter CSS/JS update, re-paste **both** files (the 2026-08-20 print change updated both).
+1. Add **CSS** site-wide (e.g. **Appearance → Customize → Additional CSS** or a CSS plugin). Prefer **CSS + theme** or **CSS (base only)** as appropriate; **append** below any existing site CSS — do not replace the whole box. When updating, replace the old manual block instead of adding a second copy, and make sure the site CSS above it has no unclosed `@media { … }` block (one on the Grad School site made the manual CSS desktop-only).
+2. Add **JS** site-wide or via a **code snippet** plugin. If your snippet UI expects raw HTML, wrap the script in `<script> … </script>` tags. After a converter CSS/JS update, re-paste **both** files (the 2026-09-29 phone-nav change updated both). Keep only **one** copy of the script on the page — an older copy that runs first wins.
 3. Paste the **Fragment** HTML into a **Custom HTML** block.
 
 The TOC panel is controlled by the site-level JS. With the current `wordpress.js`, the TOC includes search and a **Print / Save PDF** button. That button opens the browser print dialog and uses the app's print CSS so the printed/PDF version drops TOC/search/print chrome, uses a single full-width ~11pt column, repeats table headers, and underlines external links without printing the URL after them.
+
+On phones and tablets (up to 960px wide) the TOC becomes a compact panel above the content: the search box and an **Expand table of contents** button, with the chapter list collapsed until tapped. **Print / Save PDF** is hidden there; use a desktop browser to print. The converter's own "Skip to main content" link is hidden because WSU pages already have "Skip to content".
 
 **Important:** WordPress often strips `<input>`, `<style>`, and `<script>` from Custom HTML blocks. The shipped `wordpress.js` includes logic to recreate the TOC search box and print button when needed. **Fragment + CSS** is still not enough by itself in WordPress if the host strips embedded `<style>` / `<script>` — use site-level CSS and JS as above.
 
@@ -153,7 +155,8 @@ The TOC panel is controlled by the site-level JS. With the current `wordpress.js
 | App will not start | Install Pandoc; verify `pandoc --version`. |
 | Upload refused for tracked changes | In Word: **Review → Accept → Accept All Changes** (or reject them), save, re-upload. |
 | **405 Method Not Allowed** on convert | Hard refresh or clear cache for this site. |
-| Search, TOC, or Print / Save PDF missing on WordPress | Redeploy the latest **JS** from this app’s export. |
+| Search, TOC, or Print / Save PDF missing on WordPress | Redeploy the latest **JS** from this app’s export. (Print is intentionally hidden on phones.) |
+| Phone shows the full desktop TOC, Print button, or skip link | Check the site's Additional CSS for an unclosed `@media` block above the manual CSS, and that the page has only one copy of the manual script. Reload with `?nc=` plus any number on the URL to bypass the page cache. |
 | Need a PDF copy | Use **Print / Save PDF** above the TOC on the published/manual preview page, then choose Save as PDF in the browser print dialog. |
 | No table review mid-flow | Enable **Open table review before export** **before** uploading, or use **Table settings…** on the preview. |
 | Heading map ignored | Prefer **file upload** in the heading-map box; check JSON validity. |

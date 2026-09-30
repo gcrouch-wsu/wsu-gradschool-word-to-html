@@ -16,7 +16,7 @@ For setup and step-by-step usage see `README.md`; for the in-app editor guide
 see `instructions.md`; for the companion config generator see
 `README_config_generator.md`.
 
-### Current state (2026-08-21)
+### Current state (2026-09-30)
 
 Facts a new session should not rediscover. Invariants: §15. Ranked remaining
 work: §21. Historical audits: §17–20 (do not treat them as live operator
@@ -31,8 +31,14 @@ instructions).
   double-label. First `css-counters` rebuild: permalink-map keys are the
   **post-strip** title.
 - **Operators paste `wordpress.css` and `wordpress.js` onto the WordPress
-  sites.** After the 2026-08-20 asset change, **both** Additional CSS and the
-  JS snippet must be re-pasted. Faculty Senate Additional CSS still has
+  sites.** After the 2026-09-29 v4 phone-nav change, **both** Additional CSS
+  and the JS snippet must be re-pasted. GSPP
+  (`gradschool.wsu.edu/graduate-school-policies-and-procedures/`) runs v4 and
+  was confirmed working on iPhone after closing an unbalanced
+  `@media (hover: hover) and (pointer: fine)` block in the GS Additional CSS.
+  The Faculty Manual page still runs the v2 script **twice** (first copy wins)
+  with v2 CSS; remove both script copies and paste v4 once. Phone-nav rules:
+  §15. Faculty Senate Additional CSS still has
   unrelated site CSS above the manual block — append, do not replace. Do not
   hide generic `header` (the page H1 lives there). Grad School org-chart CSS
   is host CSS, not this repo's sheet.
@@ -1314,6 +1320,18 @@ are not rediscovered as open defects:
   11pt, full-width well, no URL dump, inherit heading-cluster, NBSP before
   table `sup`). Operators must re-paste **both** Additional CSS and the JS
   snippet. Do not follow the §19 “JS unchanged” note.
+
+### Closed this cycle (2026-09-29) — phone/tablet nav (v4)
+
+- `wordpress.css` / `wordpress.js` v4: one compact query shared by CSS and JS,
+  JS sets state only, Print hidden and TOC collapsed on phones, converter skip
+  link hidden. Rules: §15. Commit `d8f7477`.
+- Root cause of the iPhone failures was host CSS, not the manual: an unclosed
+  `@media (hover: hover) and (pointer: fine)` block in the GS Additional CSS.
+  The "iOS reports 980px" theory was wrong (both sites send
+  `width=device-width`). Do not re-open it as a breakpoint problem.
+- Still open: the Faculty Manual page is on v2 (two script copies), and the
+  exported HTML still emits the skip link (item 6 below).
 
 ### Open work, in the order it is worth doing
 

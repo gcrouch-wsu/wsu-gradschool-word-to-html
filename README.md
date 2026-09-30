@@ -12,9 +12,10 @@ For the authoritative description of the architecture, module layout, security m
 - **WordPress-ready output** — generates HTML fragments, CSS, and JS for WordPress deployment
 - **Chapter vs section manuals** — detected from heading labels (with upload override); degree acronyms like `D.V.M.` are excluded from reference review
 - **Permalink stability** — heading map JSON preserves anchor IDs across editing cycles, so WordPress URLs survive document revisions
-- **WCAG 2.1 AA accessible** — skip navigation, ARIA landmarks, table scope attributes, keyboard-navigable TOC; the accessible **manual grid shell** (skip link, `nav`, search, `main`) is built in **one place** — `core/html_processor.py` → **`build_manual_grid_block`** (server TOC in preview when applicable; downloads use an empty TOC placeholder filled by **`wordpress.js`**)
+- **WCAG 2.1 AA accessible** — skip navigation, ARIA landmarks, table scope attributes, keyboard-navigable TOC; the accessible **manual grid shell** (skip link — hidden by `wordpress.css`/`wordpress.js` because WSU pages already provide "Skip to content" — `nav`, search, `main`) is built in **one place** — `core/html_processor.py` → **`build_manual_grid_block`** (server TOC in preview when applicable; downloads use an empty TOC placeholder filled by **`wordpress.js`**)
 - **Intended round-trip editing workflow** — exports a clean DOCX for the next Word editing cycle and supports heading-map-based permalink continuity; known limitations are handled through structured review steps in the app
 - **Searchable TOC** — JavaScript-powered table of contents with live search, scrollspy, and keyboard navigation
+- **Phone/tablet layout** — at `screen and (max-width: 960px)` the sidebar becomes a compact panel above the content: search plus an **Expand table of contents** button, chapter list collapsed by default, **Print / Save PDF** hidden. Desktop keeps the two-column sticky TOC
 - **Reference crosswalk** — converts legacy heading references (Roman numerals, letters) to numeric format
 - **Print-ready** — browser Print / Save as PDF uses the exported `@media print` stylesheet: drops TOC, search, the print button, and WSU chrome on manual pages; ~11pt full-width type; repeats table headers; underlines external links **without** printing the URL after them
 - **Per-table control** — each table's header row, column alignment and placement on the page are set individually in Table Review, because the right answer depends on the table
@@ -152,13 +153,15 @@ with the count and what to do about it.
 ### WordPress Deployment
 
 1. Add the **CSS** as site-level custom CSS (Appearance → Customize → Additional CSS, or a custom CSS plugin). Two flavours are offered: **CSS + theme** includes this session's theme settings, **CSS (base only)** is the stylesheet alone. If your site has never had the theme block installed, take the base-only download — adding the theme block changes fonts and table styling you may not want.
-   - **Append, don't replace.** If the site already has unrelated custom CSS in that box, paste the manual stylesheet *below* it — replacing the whole box deletes the site's own fixes.
+   - **Append, don't replace.** If the site already has unrelated custom CSS in that box, paste the manual stylesheet *below* it — replacing the whole box deletes the site's own fixes. When updating, replace the *old manual block* rather than adding a second copy.
+   - **Check the site CSS above it is balanced.** An unclosed `@media` block earlier in the box (on the Grad School site, a duplicated `@media (hover: hover) and (pointer: fine) {`) swallows the whole manual stylesheet into that query — desktop looks fine while phones get no manual CSS at all.
    - The stylesheet is page-agnostic: it targets `body:has(.manual-grid)`, so publishing a second manual on a different page needs no CSS edit.
    - It includes a print stylesheet, so browser **Print / Save as PDF** drops the sidebar TOC, search, print button, copy-link icons, and WSU chrome on the manual page, uses a full-width ~11pt column, repeats table headers, and underlines external links without dumping their URLs.
 2. Add the **JS** as either:
    - **Site-level JS** (no wrappers needed), or
    - **Code snippet** — must be wrapped in `<script>` tags
-   - After a converter asset update, re-paste **both** CSS and JS. The 2026-08-20 print/heading-cluster change updated both files.
+   - After a converter asset update, re-paste **both** CSS and JS. The 2026-09-29 phone-nav change (v4) updated both files.
+   - Keep **one** copy of the script per page. If an older copy runs first it wins and the newer one does nothing (v4 logs a console warning). A loaded v4 script marks the grid `data-manual-js="v4"`.
 3. Paste the **Fragment** HTML into a WordPress Custom HTML block
 4. WordPress strips `<input>`, `<style>`, and `<script>` tags from Custom HTML blocks — the JS includes a fallback that recreates the search input automatically
 5. **Fragment + CSS cannot work standalone in WordPress** — WordPress strips embedded `<style>` and `<script>` tags from Custom HTML blocks. CSS and JS must be added separately via site-level settings or code snippets as described above
@@ -275,6 +278,7 @@ The crosswalk system converts old-style heading references (Roman numerals, lett
 | App won't start | Verify Pandoc is installed: `pandoc --version` |
 | 405 Method Not Allowed on conversion | Clear browser cache — this was a fixed bug |
 | Search doesn't show on WordPress | Update the JS code snippet with the latest version from `wordpress.js` |
+| Phone shows the desktop TOC, Print button, or skip link | Check the site's Additional CSS for an unclosed `@media` block above the manual CSS, and that only one copy of the manual script is on the page. Test with `?nc=<number>` on the URL to bypass the page cache. In automated checks use Playwright WebKit with an iPhone device profile — a resized desktop Chromium window still reports a mouse |
 | Tables not editable | Check "Edit tables" checkbox on the upload form before uploading |
 | Table header row is wrong | Word decides which row lands in `<thead>` and is often wrong. In Table Review, set that table to **Column headers**, **Title → caption**, or **Ordinary data** |
 | An External URL wasn't saved | Only `http(s)`, `mailto:`, and `#anchor` links are stored. A bare host like `policies.wsu.edu/x` is promoted to `https://` automatically; anything else is reported in a warning after saving. A URL that hides its destination (`https://wsu.edu@elsewhere.example/`) is refused |
